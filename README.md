@@ -77,3 +77,12 @@ Every setting is optional. With no file the tools check `src` and `tools` of the
 
 `dotnet build CodeQuality.slnx` and `dotnet test CodeQuality.slnx`. The tools check themselves: `dotnet run --project src/Quality`. See `CLAUDE.md` for the engineering standard.
 These tools lived in `tools/Quality`, `tools/Refactor` and `tools/Common` of the TriviaNight repository until 2026-10-09.
+
+## The Claude Code skill
+
+`skill/code-quality/SKILL.md` teaches Claude Code the workflow (set a site up, run and read the checks, act on the ratchet, use the Refactor tool, change the tools). Install it once per machine so it is available
+in every site (the repository copy is the source of truth; copy again after changing it):
+
+```
+mkdir -p ~/.claude/skills/code-quality && cp skill/code-quality/SKILL.md ~/.claude/skills/code-quality/SKILL.md
+```
