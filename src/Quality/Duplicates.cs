@@ -58,7 +58,19 @@ internal static class Duplicates
             }
         }
 
-        return Runs(streams, covered, partner, window, limits.DuplicateLines);
+        return Numbered(Runs(streams, covered, partner, window, limits.DuplicateLines));
+    }
+
+    /// <summary>Two runs in one file can start with the same code; the second and later get an ordinal so each is its own entry in the baseline.</summary>
+    private static List<Finding> Numbered(List<Finding> findings)
+    {
+        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+        return findings.Select(f =>
+        {
+            var key = f.File + "|" + f.Member;
+            var n = seen[key] = seen.GetValueOrDefault(key) + 1;
+            return n == 1 ? f : f with { Member = f.Member + " #" + n };
+        }).ToList();
     }
 
     private static Dictionary<ulong, List<(int Stream, int Position)>> Index(IReadOnlyList<TokenStream> streams, int window)
