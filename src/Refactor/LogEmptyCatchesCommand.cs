@@ -23,10 +23,11 @@ internal static class LogEmptyCatchesCommand
             return 2;
         }
 
-        var folders = options.Has("--path") ? new[] { Path.GetFullPath(options.Text("--path"), root) } : ToolConfig.Load(root).SourceFolders.Select(folder => Path.Combine(root, folder)).Where(Directory.Exists).ToArray();
+        var config = ToolConfig.Load(root);
+        var folders = options.Has("--path") ? new[] { Path.GetFullPath(options.Text("--path"), root) } : config.SourceFolders.Select(folder => Path.Combine(root, folder)).Where(Directory.Exists).ToArray();
         var totalLogged = 0;
         var left = new List<string>();
-        foreach (var file in folders.SelectMany(folder => Directory.EnumerateFiles(folder, "*.cs", SearchOption.AllDirectories)).Where(IsOurs))
+        foreach (var file in folders.SelectMany(folder => Directory.EnumerateFiles(folder, "*.cs", SearchOption.AllDirectories)).Where(file => IsOurs(file, root, config)))
         {
             var result = EmptyCatchLogger.Apply(File.ReadAllText(file));
             totalLogged += result.Logged.Count;
@@ -46,7 +47,12 @@ internal static class LogEmptyCatchesCommand
         return 0;
     }
 
-    private static bool IsOurs(string path) =>
-        !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-        && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+    /// <summary>Not build output, and not in a folder the repository's quality.json says to leave out (another repository checked out inside it, for example).</summary>
+    private static bool IsOurs(string path, string root, ToolConfig config)
+    {
+        var relative = "/" + Path.GetRelativePath(root, path).Replace('\\', '/');
+        return !relative.Contains("/obj/", StringComparison.Ordinal)
+            && !relative.Contains("/bin/", StringComparison.Ordinal)
+            && !config.SkipFolders.Any(skipped => relative.Contains(skipped, StringComparison.Ordinal));
+    }
 }

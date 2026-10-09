@@ -14,7 +14,7 @@ Blazor, a front end that is Node-free or lightly scripted). Everything is read-o
 Add this repository as a submodule so each site pins the version it was checked with:
 
 ```
-git submodule add git@github.com:71-Degrees/CodeQuality.git tools/CodeQuality
+git submodule add https://github.com/71-Degrees/CodeQuality.git tools/CodeQuality
 git submodule update --init
 ```
 
