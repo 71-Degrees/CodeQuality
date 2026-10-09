@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Small helpers shared by the console tools under tools/ (running a process, finding the repository root), so each tool does not carry its own copy. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>CodeQuality.Common</RootNamespace>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,6 @@
+{
+  "siteName": "CodeQuality",
+  "sourceFolders": [ "src" ],
+  "testFolders": [ "tests" ],
+  "toolCommand": "dotnet run --project src/Quality --"
+}
