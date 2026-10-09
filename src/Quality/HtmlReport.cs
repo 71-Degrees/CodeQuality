@@ -18,8 +18,6 @@ namespace CodeQuality.Quality;
 /// </summary>
 internal sealed class Collected
 {
-    private static readonly JsonSerializerOptions StateJson = new() { WriteIndented = true };
-
     public IReadOnlyList<Finding> Smells { get; set; } = Array.Empty<Finding>();
 
     public IReadOnlyList<Finding> Analyzers { get; set; } = Array.Empty<Finding>();
@@ -46,23 +44,9 @@ internal sealed class Collected
 
     private static string StatePath(string root) => Path.Combine(root, "reports", "quality-state.json");
 
-    public static Collected Load(string root)
-    {
-        try
-        {
-            return File.Exists(StatePath(root)) ? JsonSerializer.Deserialize<Collected>(File.ReadAllText(StatePath(root))) ?? new Collected() : new Collected();
-        }
-        catch (JsonException)
-        {
-            return new Collected();   // an unreadable state file just means starting the report afresh
-        }
-    }
+    public static Collected Load(string root) => JsonState.Load<Collected>(StatePath(root));
 
-    public void Save(string root)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(StatePath(root))!);
-        File.WriteAllText(StatePath(root), JsonSerializer.Serialize(this, StateJson));
-    }
+    public void Save(string root) => JsonState.Save(StatePath(root), this);
 }
 
 /// <summary>
@@ -81,6 +65,9 @@ internal static class HtmlReport
             root,
             howTo = new { tool = config.ToolCommand, extra = config.ExtraCommands },
             history = history.Snapshots,
+            newerRules = Rules.Newer,
+            hotspotDays = config.HotspotDays,
+            hotspots = await Hotspots.FindAsync(root, config.HotspotDays, collected.Smells.Concat(collected.Analyzers)),
             findings = collected.Smells.Concat(collected.Analyzers).Select(f => Row(f, baseline)).ToList(),
             files = Smells.CountLines(root, includeTests, config).Select(f => new { file = f.File, lines = f.Lines }).ToList(),
             rules = collected.Smells.Concat(collected.Analyzers).Select(f => f.Rule).Distinct().ToDictionary(r => r, r => Describe(r)),
@@ -180,6 +167,10 @@ Full guide: the CodeQuality repository's README.</div>
 <div class="dim">Files ranked by how much refactoring pressure they carry (sum of finding weights: how far over its limit each one is). Click a heading to sort.</div>
 <div class="scroll"><table id="hot"></table></div>
 
+<h2>Where change meets complexity</h2>
+<div class="dim" id="churnnote"></div>
+<div class="scroll"><table id="churn"></table></div>
+
 <h2>Rules that fired</h2>
 <div class="dim"><span class="Mechanical">Mechanical</span> = a tool can fix it with no judgment, <span class="Assisted">Assisted</span> = a tool can do the typing once a person picks where, <span class="Manual">Manual</span> = a decision about what the code should do.</div>
 <div id="rules"></div>
@@ -237,14 +228,20 @@ $('cards').innerHTML = card(smells.length, 'code smells') + card(analyzers.lengt
   const H = D.history || [];
   if (H.length === 0) { $('trend').innerHTML = '<div class="panel dim">No timeline yet. Run <code>quality history --backfill</code> once (see "How to run this yourself"), then every run adds to it.</div>'; return; }
   const first = H[0], now = H[H.length - 1], prev = H.length > 1 ? H[H.length - 2] : null;
-  const val = (s, part, key) => (s && s[part]) ? s[part][key] : null;
+  const NEWER = D.newerRules || [];
+  const sumRules = (map, keep) => Object.entries(map || {}).filter(([r]) => keep(r)).reduce((n, [, v]) => n + v, 0);
+  // The headline numbers leave out the checks added after the start, so adding a check does not look like quality getting worse; they get their own row.
+  const smell = (s, key) => !s || !s.Smells ? null : key === 'Total' ? sumRules(s.Smells.ByRule, r => !NEWER.includes(r)) : (s.Smells.PressureByRule ? sumRules(s.Smells.PressureByRule, r => !NEWER.includes(r)) : s.Smells.Pressure);
+  const val = (s, part, key) => !s || !s[part] ? null : part === 'Smells' ? smell(s, key) : s[part][key];
+  const newerCount = s => !s || !s.Smells ? null : sumRules(s.Smells.ByRule, r => NEWER.includes(r));
   const num = v => Math.round(v * 10) / 10;
   const fmt = v => v === null ? '<span class="dim">not measured</span>' : num(v).toLocaleString();
   const delta = (a, b) => (a === null || b === null) ? '' : (b === a ? '<span class="dim">no change</span>' : `<span class="${b < a ? 'Mechanical' : 'new'}">${b < a ? '' : '+'}${num(b - a)} (${b < a ? 'better' : 'worse'})</span>`);
   const label = s => s ? `${esc(s.At)}<br><span class="dim mono">${esc(s.Commit)}</span>` : '';
   const metrics = [['Code smells', 'Smells', 'Total'], ['Refactoring pressure', 'Smells', 'Pressure'], ['.NET analyzer findings', 'Analyzers', 'Total']];
   let html = `<div class="scroll"><table><tr><th>Measure</th><th class="num">Start<br>${label(first)}</th><th class="num">Before the last change<br>${label(prev)}</th><th class="num">Now<br>${label({ At: D.generated, Commit: D.commit })}</th><th>Change since start</th></tr>` +
-    metrics.map(([name, part, key]) => { const a = val(first, part, key), p = val(prev, part, key), n = val(now, part, key); return `<tr><td>${name}</td><td class="num">${fmt(a)}</td><td class="num">${prev ? fmt(p) : ''}</td><td class="num">${fmt(n)}</td><td>${delta(a, n)}</td></tr>`; }).join('') + '</table></div>';
+    metrics.map(([name, part, key]) => { const a = val(first, part, key), p = val(prev, part, key), n = val(now, part, key); return `<tr><td>${name}</td><td class="num">${fmt(a)}</td><td class="num">${prev ? fmt(p) : ''}</td><td class="num">${fmt(n)}</td><td>${delta(a, n)}</td></tr>`; }).join('') +
+    (newerCount(now) ? `<tr><td>Newer checks <span class="dim">(${esc(NEWER.filter(r => ((now.Smells || {}).ByRule || {})[r]).join(', '))})</span></td><td class="num"><span class="dim">not measured</span></td><td class="num">${prev ? fmt(newerCount(prev)) : ''}</td><td class="num">${fmt(newerCount(now))}</td><td><span class="dim">added after the start, so not in the rows above</span></td></tr>` : '') + '</table></div>';
   html += '<div class="dim">Pressure adds up how far over its limit each smell is (a 150-line method weighs about 2.5; a 61-line one 1). The start is the earliest snapshot recorded (rebuilt from the git history of the baseline for the first day); every run that changes the numbers adds a point.</div>';
 
   const rules = [...new Set([...Object.keys((first.Smells || {}).ByRule || {}), ...Object.keys((now.Smells || {}).ByRule || {})])].sort();
@@ -279,6 +276,12 @@ sortable($('hot'), hot, [
   { k: 'file', h: 'File', f: r => `<span class="mono">${esc(r.file)}</span>` }, { k: 'lines', h: 'Lines', num: true },
   { k: 'findings', h: 'Findings', num: true }, { k: 'score', h: 'Pressure', num: true },
   { k: 'score', h: '', f: r => `<div class="bar" style="width:${Math.max(2, 140 * r.score / maxScore)}px"></div>` }]);
+
+// change meets complexity: edited often AND carrying findings
+$('churnnote').textContent = `Files edited most in the last ${D.hotspotDays} days that also carry findings. Score = commits x pressure: the cheapest place to start, because the code is both hard to change and being changed.`;
+sortable($('churn'), D.hotspots, [
+  { k: 'File', h: 'File', f: r => `<span class="mono">${esc(r.File)}</span>` }, { k: 'Commits', h: 'Commits', num: true }, { k: 'LinesChanged', h: 'Lines changed', num: true },
+  { k: 'Findings', h: 'Findings', num: true }, { k: 'Pressure', h: 'Pressure', num: true }, { k: 'Score', h: 'Score', num: true }]);
 
 // rules
 const ruleRows = Object.entries(D.rules).map(([id, r]) => ({ id, ...r, n: F.filter(f => f.rule === id).length })).sort((a, b) => b.n - a.n);

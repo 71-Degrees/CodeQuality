@@ -2,5 +2,7 @@
   "siteName": "CodeQuality",
   "sourceFolders": [ "src" ],
   "testFolders": [ "tests" ],
-  "toolCommand": "dotnet run --project src/Quality --"
+  "toolCommand": "dotnet run --project src/Quality --",
+  // These are command-line tools: the clock and the network are their edges, so reading them directly is the job, not a smell.
+  "disabledRules": [ "DirectClock", "DirectHttpClient" ]
 }

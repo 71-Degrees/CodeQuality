@@ -10,12 +10,14 @@
         "ByRule": {
           "Complexity": 1,
           "LongMethod": 1
-        }
+        },
+        "PressureByRule": null
       },
       "Analyzers": {
         "Total": 0,
         "Pressure": 0,
-        "ByRule": {}
+        "ByRule": {},
+        "PressureByRule": null
       }
     },
     {
@@ -25,12 +27,81 @@
       "Smells": {
         "Total": 0,
         "Pressure": 0,
-        "ByRule": {}
+        "ByRule": {},
+        "PressureByRule": null
       },
       "Analyzers": {
         "Total": 0,
         "Pressure": 0,
-        "ByRule": {}
+        "ByRule": {},
+        "PressureByRule": null
+      }
+    },
+    {
+      "At": "2026-10-09 19:14",
+      "Commit": "6c73e5a",
+      "Note": "",
+      "Smells": {
+        "Total": 6,
+        "Pressure": 8,
+        "ByRule": {
+          "DirectClock": 3,
+          "DirectHttpClient": 1,
+          "DuplicateCode": 2
+        },
+        "PressureByRule": {
+          "DirectClock": 3,
+          "DirectHttpClient": 1,
+          "DuplicateCode": 4
+        }
+      },
+      "Analyzers": {
+        "Total": 0,
+        "Pressure": 0,
+        "ByRule": {},
+        "PressureByRule": null
+      }
+    },
+    {
+      "At": "2026-10-09 19:14",
+      "Commit": "6c73e5a",
+      "Note": "",
+      "Smells": {
+        "Total": 6,
+        "Pressure": 8.2,
+        "ByRule": {
+          "DirectClock": 3,
+          "DirectHttpClient": 1,
+          "DuplicateCode": 2
+        },
+        "PressureByRule": {
+          "DirectClock": 3,
+          "DirectHttpClient": 1,
+          "DuplicateCode": 4.2
+        }
+      },
+      "Analyzers": {
+        "Total": 0,
+        "Pressure": 0,
+        "ByRule": {},
+        "PressureByRule": null
+      }
+    },
+    {
+      "At": "2026-10-09 19:15",
+      "Commit": "6c73e5a",
+      "Note": "",
+      "Smells": {
+        "Total": 0,
+        "Pressure": 0,
+        "ByRule": {},
+        "PressureByRule": {}
+      },
+      "Analyzers": {
+        "Total": 0,
+        "Pressure": 0,
+        "ByRule": {},
+        "PressureByRule": {}
       }
     }
   ]

@@ -52,7 +52,10 @@ Every setting is optional. With no file the tools check `src` and `tools` of the
   "scriptChecks": [ "typecheck", "lint" ],
   "crawl": { "defaultUrl": "https://staging.example.com", "userAgent": "ExampleQualityCrawler/1.0", "skipPattern": "^/(account|admin|api)" },
   "ignoredAnalyzerRules": { "CA1707": "tests are named as sentences" },
-  "limits": { "methodLines": 60, "complexity": 15, "nesting": 4, "parameters": 7, "fileLines": 700, "razorCodeLines": 400 },
+  "disabledRules": [ "DirectHttpClient" ],
+  "ruleExemptions": { "DirectClock": [ "/Startup/" ] },
+  "hotspotDays": 90,
+  "limits": { "methodLines": 60, "complexity": 15, "nesting": 4, "parameters": 7, "fileLines": 700, "razorCodeLines": 400, "duplicateTokens": 70, "duplicateLines": 8 },
   "toolCommand": "dotnet run --project tools/CodeQuality/src/Quality --",
   "extraCommands": [ "dotnet run --project tools/Deploy -- check     the full pre-push check" ]
 }
@@ -70,6 +73,14 @@ Every setting is optional. With no file the tools check `src` and `tools` of the
   Findings are keyed by rule + file + member, never a line number. The baseline only ever shrinks unless someone deliberately accepts something (say why in the commit).
 - **Timeline:** `quality/history.json` (committed) gets a snapshot whenever a run's numbers change: smell count, "refactoring pressure" (how far over its limit each smell is, summed) and analyzer
   findings, per rule. The report opens with start / before the last change / now, a by-rule table and a chart.
+- **Standard-as-rules:** smells for rules a team writes down and then has to remember: `MutableStatic` (static state that can change), `DirectClock` (`DateTime.UtcNow` and friends; take a `TimeProvider`),
+  `DirectHttpClient` (`new HttpClient()`; take a factory), `DroppedTask` (`_ = DoAsync()`), and in tests `TestWithoutAssert` and `SkippedTest`. The clock, HttpClient and dropped-task rules are one finding per
+  file whose value is the count. Switch a rule off with `disabledRules`, or exempt the edges of the app with `ruleExemptions` (`{ "DirectClock": [ "/Startup/" ] }`).
+- **Duplicate code (`DuplicateCode`):** every window of `limits.duplicateTokens` (70) consecutive tokens, with names and literals ignored, is hashed; a hash found in two places marks the code as repeated, and a run of
+  at least `limits.duplicateLines` (8) lines is one finding naming where else it is. Auto-property lists, enums, usings and attributes are ignored, as is a long stretch of similar lines inside one file.
+- **Hotspots:** the report ranks files by commits over the last `hotspotDays` (90) times their pressure: the code that is both hard to change and being changed, so the cheapest place to start refactoring.
+- **Newer checks and the timeline:** rules added after the first recording are listed in `Rules.Newer`; the timeline's headline numbers leave them out (so adding a check never looks like quality getting worse) and
+  they get their own row.
 - **Crawl:** Playwright, phone-sized by default, read-only; broken links, console and network errors, SEO basics, sideways scrolling, images with no alt, axe-core accessibility.
   One-time: `pwsh src/Quality/bin/Debug/net10.0/playwright.ps1 install chromium`.
 

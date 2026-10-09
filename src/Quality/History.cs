@@ -15,33 +15,38 @@ internal static class Weights
 {
     public static readonly IReadOnlyDictionary<string, double> Limits = new Dictionary<string, double>
     {
-        ["LongMethod"] = 60, ["Complexity"] = 15, ["DeepNesting"] = 4, ["ManyParameters"] = 7, ["LongFile"] = 700, ["RazorCodeBlock"] = 400,
+        ["LongMethod"] = 60, ["DuplicateCode"] = 10, ["Complexity"] = 15, ["DeepNesting"] = 4, ["ManyParameters"] = 7, ["LongFile"] = 700, ["RazorCodeBlock"] = 400,
     };
 
     public static double Of(string rule, int value) =>
         Limits.TryGetValue(rule, out var limit) ? Math.Max(1, value / limit) : rule.StartsWith("build/", StringComparison.Ordinal) ? 0.3 * value : 1;
 }
 
-/// <summary>What one check found at one moment: how many findings, how much pressure they add up to, and the count per rule.</summary>
-internal sealed record CheckCounts(int Total, double Pressure, Dictionary<string, int> ByRule)
+/// <summary>What one check found at one moment: how many findings, how much pressure they add up to, and the count and pressure per rule.</summary>
+internal sealed record CheckCounts(int Total, double Pressure, Dictionary<string, int> ByRule, Dictionary<string, double>? PressureByRule = null)
 {
-    public static CheckCounts From(IEnumerable<Finding> findings)
-    {
-        var list = findings.ToList();
-        return new CheckCounts(list.Count, Math.Round(list.Sum(f => Weights.Of(f.Rule, f.Value)), 1), Tally(list.Select(f => f.Rule)));
-    }
+    public static CheckCounts From(IEnumerable<Finding> findings) => Of(findings.Select(f => (f.Rule, Weights.Of(f.Rule, f.Value))));
 
     /// <summary>The same numbers from baseline entries (key = rule|file|member, value = measurement), for snapshots rebuilt from git history.</summary>
-    public static CheckCounts FromEntries(IEnumerable<KeyValuePair<string, int>> entries)
-    {
-        var list = entries.Select(e => (Rule: e.Key.Split('|')[0], e.Value)).ToList();
-        return new CheckCounts(list.Count, Math.Round(list.Sum(e => Weights.Of(e.Rule, e.Value)), 1), Tally(list.Select(e => e.Rule)));
-    }
+    public static CheckCounts FromEntries(IEnumerable<KeyValuePair<string, int>> entries) => Of(entries.Select(e => (Rule: e.Key.Split('|')[0], Weights.Of(e.Key.Split('|')[0], e.Value))));
 
     public bool SameAs(CheckCounts? other) =>
         other is not null && Total == other.Total && Math.Abs(Pressure - other.Pressure) < 0.05 && ByRule.Count == other.ByRule.Count && ByRule.All(r => other.ByRule.GetValueOrDefault(r.Key) == r.Value);
 
-    private static Dictionary<string, int> Tally(IEnumerable<string> rules) => rules.GroupBy(r => r).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count());
+    /// <summary>The count and pressure leaving out some rules (the ones added after the first recording), so a new check does not make the trend look worse.</summary>
+    public (int Total, double Pressure) Without(IReadOnlyCollection<string> rules)
+    {
+        var total = ByRule.Where(r => !rules.Contains(r.Key)).Sum(r => r.Value);
+        var pressure = PressureByRule is null ? Pressure : PressureByRule.Where(r => !rules.Contains(r.Key)).Sum(r => r.Value);
+        return (total, Math.Round(pressure, 1));
+    }
+
+    private static CheckCounts Of(IEnumerable<(string Rule, double Weight)> items)
+    {
+        var list = items.ToList();
+        var byRule = list.GroupBy(i => i.Rule).OrderBy(g => g.Key, StringComparer.Ordinal).ToList();
+        return new CheckCounts(list.Count, Math.Round(list.Sum(i => i.Weight), 1), byRule.ToDictionary(g => g.Key, g => g.Count()), byRule.ToDictionary(g => g.Key, g => Math.Round(g.Sum(i => i.Weight), 1)));
+    }
 }
 
 /// <summary>One point on the quality timeline. A check that was not measured at that time is null (the analyzers did not exist yet, for example).</summary>
@@ -53,29 +58,13 @@ internal sealed record Snapshot(string At, string Commit, string Note, CheckCoun
 /// </summary>
 internal sealed class History
 {
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
-
     public List<Snapshot> Snapshots { get; set; } = new();
 
     private static string PathFor(string root) => Path.Combine(root, "quality", "history.json");
 
-    public static History Load(string root)
-    {
-        try
-        {
-            return File.Exists(PathFor(root)) ? JsonSerializer.Deserialize<History>(File.ReadAllText(PathFor(root))) ?? new History() : new History();
-        }
-        catch (JsonException)
-        {
-            return new History();   // an unreadable timeline just starts again; it is rebuilt with --backfill
-        }
-    }
+    public static History Load(string root) => JsonState.Load<History>(PathFor(root));
 
-    public void Save(string root)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(PathFor(root))!);
-        File.WriteAllText(PathFor(root), JsonSerializer.Serialize(this, Json) + Environment.NewLine);
-    }
+    public void Save(string root) => JsonState.Save(PathFor(root), this);
 
     /// <summary>Adds a snapshot for this run when its numbers changed. A check that did not run this time keeps its numbers from the previous snapshot. Returns true when one was added.</summary>
     public bool Record(Collected collected, string commit, DateTime now)
@@ -158,7 +147,11 @@ internal sealed class History
             return null;
         }
 
-        var text = $"Since the first recording ({Snapshots[0].At}): code smells {first.Total} -> {now.Total}, refactoring pressure {first.Pressure:0.#} -> {now.Pressure:0.#}";
-        return Snapshots[0].Analyzers is { } a && Snapshots[^1].Analyzers is { } b ? text + $", analyzer findings {a.Total} -> {b.Total}." : text + ".";
+        var (startTotal, startPressure) = first.Without(Rules.Newer);
+        var (nowTotal, nowPressure) = now.Without(Rules.Newer);
+        var text = $"Since the first recording ({Snapshots[0].At}): code smells {startTotal} -> {nowTotal}, refactoring pressure {startPressure:0.#} -> {nowPressure:0.#}";
+        text = Snapshots[0].Analyzers is { } a && Snapshots[^1].Analyzers is { } b ? text + $", analyzer findings {a.Total} -> {b.Total}" : text;
+        var newer = now.Total - nowTotal;
+        return newer > 0 ? text + $" (not counted: {newer} finding(s) from checks added since)." : text + ".";
     }
 }

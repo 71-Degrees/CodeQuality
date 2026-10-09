@@ -22,6 +22,12 @@ public sealed class Thresholds
     public int FileLines { get; init; } = 700;
 
     public int RazorCodeLines { get; init; } = 400;
+
+    /// <summary>A block of code is a duplicate when this many consecutive tokens (names and literals ignored) appear in two places...</summary>
+    public int DuplicateTokens { get; init; } = 70;
+
+    /// <summary>...and the repeated run spans at least this many lines.</summary>
+    public int DuplicateLines { get; init; } = 8;
 }
 
 /// <summary>The site crawler's settings.</summary>
@@ -64,6 +70,15 @@ public sealed class ToolConfig
 
     /// <summary>Analyzer rules to leave out of the report, each with the reason, added to the built-in list.</summary>
     public Dictionary<string, string> IgnoredAnalyzerRules { get; init; } = new();
+
+    /// <summary>Smell rules to switch off for this site (for example "DirectClock").</summary>
+    public string[] DisabledRules { get; init; } = Array.Empty<string>();
+
+    /// <summary>Per rule, path fragments where it does not apply (the edges of the app, where reading the clock or making an HttpClient is the point): <c>{ "DirectClock": [ "/Startup/" ] }</c>.</summary>
+    public Dictionary<string, string[]> RuleExemptions { get; init; } = new();
+
+    /// <summary>How many days of git history the hotspot table looks at.</summary>
+    public int HotspotDays { get; init; } = 90;
 
     public Thresholds Limits { get; init; } = new();
 

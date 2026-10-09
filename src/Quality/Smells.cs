@@ -23,36 +23,49 @@ internal static class Smells
     public static IReadOnlyList<Finding> Scan(string root, bool includeTests, ToolConfig config)
     {
         var findings = new List<Finding>();
-        var limits = config.Limits;
-        foreach (var (path, relative) in SourceFiles(root, includeTests, config))
+        var streams = new List<TokenStream>();
+        foreach (var (path, relative, isTest) in SourceFiles(root, config))
         {
-            if (path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            var text = File.ReadAllText(path);
+            if (!path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
             {
-                ScanCSharp(relative, File.ReadAllText(path), limits, findings);
+                if (!isTest || includeTests)
+                {
+                    ScanRazor(relative, text, config.Limits, findings);
+                }
+
+                continue;
             }
-            else
+
+            var tree = CSharpSyntaxTree.ParseText(text);
+            ScanCSharp(relative, tree, config.Limits, findings, isTest ? (includeTests ? FileKind.TestFull : FileKind.TestRulesOnly) : FileKind.Code);
+            if (!isTest || includeTests)
             {
-                ScanRazor(relative, File.ReadAllText(path), limits, findings);
+                streams.Add(Duplicates.Stream(relative, tree));
             }
         }
 
-        return findings;
+        findings.AddRange(Duplicates.Find(streams, config.Limits));
+        return Applicable(findings, config);
     }
+
+    /// <summary>Drops the rules a site switched off, and each rule's findings in the places where it does not apply (the app's edges).</summary>
+    private static List<Finding> Applicable(List<Finding> findings, ToolConfig config) =>
+        findings.Where(f => !config.DisabledRules.Contains(f.Rule)
+            && !(config.RuleExemptions.TryGetValue(f.Rule, out var places) && places.Any(place => ("/" + f.File).Contains(place, StringComparison.Ordinal)))).ToList();
 
     /// <summary>The size of every source file we scan, for the report's "where is the code" view.</summary>
     public static IReadOnlyList<(string File, int Lines)> CountLines(string root, bool includeTests, ToolConfig config) =>
-        SourceFiles(root, includeTests, config).Select(f => (f.Relative, File.ReadLines(f.Path).Count())).ToList();
+        SourceFiles(root, config).Where(f => includeTests || !f.IsTest).Select(f => (f.Relative, File.ReadLines(f.Path).Count())).ToList();
 
-    /// <summary>Every .cs and .razor file under src and tools (and tests on request), leaving out build output and generated code.</summary>
-    private static IEnumerable<(string Path, string Relative)> SourceFiles(string root, bool includeTests, ToolConfig config)
+    /// <summary>Which rules apply to a C# file: application code, test code (only the test rules unless tests were asked for), or both.</summary>
+    private enum FileKind { Code, TestFull, TestRulesOnly }
+
+    /// <summary>Every .cs and .razor file under the source and test folders, leaving out build output and generated code.</summary>
+    private static IEnumerable<(string Path, string Relative, bool IsTest)> SourceFiles(string root, ToolConfig config)
     {
-        var folders = new List<string>(config.SourceFolders);
-        if (includeTests)
-        {
-            folders.AddRange(config.TestFolders);
-        }
-
-        foreach (var folder in folders.Select(f => Path.Combine(root, f)).Where(Directory.Exists))
+        var folders = config.SourceFolders.Select(f => (Folder: f, IsTest: false)).Concat(config.TestFolders.Select(f => (Folder: f, IsTest: true)));
+        foreach (var (folder, isTest) in folders.Select(f => (Path.Combine(root, f.Folder), f.IsTest)).Where(f => Directory.Exists(f.Item1)))
         {
             foreach (var path in Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories))
             {
@@ -61,7 +74,7 @@ internal static class Smells
                 var skipped = SkipFolders.Concat(config.SkipFolders).Any(("/" + relative).Contains) || relative.EndsWith(".g.cs") || relative.EndsWith(".Designer.cs");
                 if (isSource && !skipped)
                 {
-                    yield return (path, relative);
+                    yield return (path, relative, isTest);
                 }
             }
         }
@@ -87,10 +100,19 @@ internal static class Smells
         }
     }
 
-    private static void ScanCSharp(string file, string text, Thresholds limits, List<Finding> findings)
+    private static void ScanCSharp(string file, SyntaxTree tree, Thresholds limits, List<Finding> findings, FileKind kind)
     {
-        var tree = CSharpSyntaxTree.ParseText(text);
         var root = tree.GetRoot();
+        if (kind != FileKind.Code)
+        {
+            StandardRules.CheckTests(file, root, tree, findings);
+        }
+
+        if (kind == FileKind.TestRulesOnly)
+        {
+            return;
+        }
+
         var scan = new FileScan(file, tree, limits, findings);
         var lineCount = tree.GetText().Lines.Count;
         if (lineCount > limits.FileLines)
@@ -125,6 +147,10 @@ internal static class Smells
         }
 
         CheckTodoMarkers(root, tree, file, findings);
+        if (kind == FileKind.Code)
+        {
+            StandardRules.CheckCode(file, root, tree, findings);
+        }
     }
 
     private static void CheckTodoMarkers(SyntaxNode root, SyntaxTree tree, string file, List<Finding> findings)
