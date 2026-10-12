@@ -15,11 +15,21 @@ namespace CodeQuality.Browser;
 /// </summary>
 public abstract class BrowserSiteFixture : IAsyncLifetime
 {
+    // A transparent 1x1 picture, the answer a blocked image request gets (so a page that asked for a map tile shows a blank one and logs no error).
+    private static readonly byte[] TransparentPng = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _blockedHosts = new(StringComparer.OrdinalIgnoreCase);
     private IPlaywright? _playwright;
     private IBrowser? _browser;
 
     /// <summary>How to start the site: its project, storage, settings.</summary>
     protected abstract SiteHostOptions Options { get; }
+
+    /// <summary>
+    /// Whether a request to this address must not leave the machine (a map tile, a font, an avatar on someone else's server). A blocked request is answered with nothing, or a transparent picture for an image, and its host is
+    /// written once to the run log, so a test run never reaches an outside service and the log shows what the pages tried to reach. Nothing is blocked by default.
+    /// </summary>
+    protected virtual bool BlocksRequest(Uri address) => false;
 
     /// <summary>The file that records each scenario's timing (appended to, never cleaned up).</summary>
     protected abstract string RunLogPath { get; }
@@ -45,8 +55,32 @@ public abstract class BrowserSiteFixture : IAsyncLifetime
     public async Task<BrowserPage> NewPageAsync(int width = 390, int height = 844, string? storageStatePath = null)
     {
         var context = await _browser!.NewContextAsync(new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = width, Height = height }, BaseURL = BaseUrl, StorageStatePath = storageStatePath }).ConfigureAwait(false);
+        await context.RouteAsync("**/*", AnswerOrBlockAsync).ConfigureAwait(false);
         var page = await context.NewPageAsync().ConfigureAwait(false);
         return new BrowserPage(context, page, new PageProbe(page), Log);
+    }
+
+    private async Task AnswerOrBlockAsync(IRoute route)
+    {
+        if (!Uri.TryCreate(route.Request.Url, UriKind.Absolute, out var address) || !BlocksRequest(address))
+        {
+            await route.ContinueAsync().ConfigureAwait(false);
+            return;
+        }
+
+        if (_blockedHosts.TryAdd(address.Host, true))
+        {
+            Log.Append("blocked outside request", TimeSpan.Zero, 0, address.Host);
+        }
+
+        if (route.Request.ResourceType == "image")
+        {
+            await route.FulfillAsync(new RouteFulfillOptions { Status = 200, ContentType = "image/png", BodyBytes = TransparentPng }).ConfigureAwait(false);
+        }
+        else
+        {
+            await route.FulfillAsync(new RouteFulfillOptions { Status = 204 }).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Saves the page's cookies and storage (its signed-in state) to a file other pages can start from.</summary>
