@@ -270,7 +270,7 @@ $('howto').textContent = [
   tool + ' smells --update-baseline    accept today\'s findings (after fixing things, or on purpose); then commit quality/baseline.json',
   tool + ' history --backfill          rebuild the timeline from the git history of the baseline',
   ...D.howTo.extra].join('\n');
-$('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}. ${D.files.length} source files, ${linesTotal.toLocaleString()} lines (C# and Razor).<br>Latest runs - smells: ${esc(when(D.ranAt.smells))}; analyzers: ${esc(when(D.ranAt.analyzers))}; scripts: ${esc(when(D.ranAt.scripts))}; site crawl: ${esc(when(D.ranAt.crawl))}.`;
+$('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}. ${D.files.length} source files, ${linesTotal.toLocaleString()} lines (C# and Razor).<br>Latest runs - smells: ${esc(when(D.ranAt.smells))}; analyzers: ${esc(when(D.ranAt.analyzers))}; scripts: ${esc(when(D.ranAt.scripts))}; site crawl: ${esc(when(D.ranAt.crawl))}.<br><a href="quality-dashboard.html">Open the dashboard</a> (trends by commit).`;
 // The headline: where quality is against where it started. The smell number leaves out the checks added after the start (they would make adding a check look like quality getting worse; they are counted
 // in the small chips below), so it is the same measure as the start and the trend table.
 (function () {

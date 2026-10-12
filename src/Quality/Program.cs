@@ -85,6 +85,7 @@ internal static class Program
         }
 
         Say($"HTML report: {html}");
+        Say($"Dashboard: {await Dashboard.WriteAsync(root, history, config)}");
         if (HtmlReport.ShouldOpen(config.OpenReport, worst, options.Flag("--open"), options.Flag("--no-open")))
         {
             HtmlReport.Open(html);
