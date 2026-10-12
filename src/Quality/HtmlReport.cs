@@ -93,7 +93,7 @@ internal static class HtmlReport
                 passed = collected.Tests.Passed,
                 failed = collected.Tests.Failed,
                 skipped = collected.Tests.Skipped,
-                coverage = collected.Tests.CoverageRate,
+                coverage = Dashboard.ConservativeCoverage(history, collected.Tests.CoverageRate),
                 projects = collected.Tests.Projects.Select(t => new { name = t.Name, total = t.Total, passed = t.Passed, failed = t.Failed, skipped = t.Skipped, seconds = t.Seconds, failures = t.Failures, at = t.At, browser = t.IsBrowser }).ToList(),
                 groups = collected.Tests.Coverage.Select(g => new { name = g.Name, covered = g.Covered, lines = g.Lines, rate = g.Rate }).ToList(),
             },

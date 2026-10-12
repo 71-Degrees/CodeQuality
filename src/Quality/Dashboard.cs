@@ -54,8 +54,26 @@ internal static class Dashboard
         return HideSmallRuns(points);
     }
 
-    private static TestCounts? FullerTests(DashboardPoint earlier, TestCounts? later) =>
-        later is null || (earlier.Tests is { } before && before > later.Total) ? (earlier.Tests is { } t ? new TestCounts(t, earlier.Failed ?? 0, earlier.Coverage) : null) : later;
+    // The fuller run's test numbers, with the lowest coverage either run recorded: the small set covers more of what it runs, and a headline must not overstate.
+    private static TestCounts? FullerTests(DashboardPoint earlier, TestCounts? later)
+    {
+        TestCounts? before = earlier.Tests is { } total ? new TestCounts(total, earlier.Failed ?? 0, earlier.Coverage) : null;
+        var fuller = later is null || (before is not null && before.Total > later.Total) ? before : later;
+        return fuller is null ? null : fuller with { Coverage = LowerOf(before?.Coverage, later?.Coverage) };
+    }
+
+    private static double? LowerOf(double? a, double? b) => a is null ? b : b is null ? a : Math.Min(a.Value, b.Value);
+
+    /// <summary>
+    /// The coverage to put in a headline: the lowest of this run's and anything recorded at the last few commits, so a quick unit-only run never lifts the number above what the full run measured.
+    /// </summary>
+    public static double? ConservativeCoverage(History history, double? current)
+    {
+        var recent = history.Snapshots.Where(s => s.Tests?.Coverage is not null).Select(s => (s.Commit, Coverage: s.Tests!.Coverage!.Value)).ToList();
+        var lastCommits = recent.Select(r => r.Commit).Distinct().TakeLast(3).ToHashSet();
+        var lowest = recent.Where(r => lastCommits.Contains(r.Commit)).Select(r => (double?)r.Coverage).DefaultIfEmpty(null).Min();
+        return LowerOf(current, lowest);
+    }
 
     private const int RecentWindow = 4;
     private const double SmallRunShare = 0.8;

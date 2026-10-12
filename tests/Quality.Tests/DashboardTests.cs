@@ -81,6 +81,29 @@ public class DashboardTests
     }
 
     [Fact]
+    public void ACommitTakesTheLowestCoverageEitherRunRecorded()
+    {
+        var small = Snap("aaa", "2026-10-01 09:00", 5, tests: 100, coverage: 0.72);
+        var full = Snap("aaa", "2026-10-01 09:05", 5, tests: 150, coverage: 0.48);
+
+        Assert.Equal(0.48, Dashboard.Points(HistoryOf(small, full))[0].Coverage);
+        Assert.Equal(0.48, Dashboard.Points(HistoryOf(full, small))[0].Coverage);
+    }
+
+    [Fact]
+    public void AHeadlineCoverageNeverRisesAboveTheLowestOfTheLastFewCommits()
+    {
+        var history = HistoryOf(
+            Snap("a", "2026-10-01 09:00", 5, tests: 150, coverage: 0.48),
+            Snap("b", "2026-10-02 09:00", 5, tests: 100, coverage: 0.72));
+
+        Assert.Equal(0.48, Dashboard.ConservativeCoverage(history, 0.72));
+        Assert.Equal(0.40, Dashboard.ConservativeCoverage(history, 0.40));
+        Assert.Equal(0.72, Dashboard.ConservativeCoverage(HistoryOf(Snap("b", "2026-10-02 09:00", 5, tests: 100, coverage: 0.72)), null));
+        Assert.Null(Dashboard.ConservativeCoverage(new History(), null));
+    }
+
+    [Fact]
     public void APushIsItsStagesTogether_WithTheSlowestOneAsItsTime()
     {
         string[] lines =
