@@ -98,6 +98,7 @@ if(F&&F.length){
   $('fn-section').hidden=false;
   const fstatus=f=>f.status;
   const nf=g=>F.filter(g).length;
+  const risky=f=>f.details&&f.details.changes>=5&&f.status!=='browser';
   const people=F.filter(f=>f.who!=='System');
   const stepsTotal=people.reduce((a,f)=>a+f.clicks,0);
   $('fn-hero').innerHTML=
@@ -106,6 +107,8 @@ if(F&&F.length){
     card(nf(f=>f.status==='browser'),'','Have a browser test','a real browser drives part of them')+
     card(nf(f=>f.walked),'','Walked in a real browser','from start to finish by a Playwright test')+
     card(nf(f=>f.smoke==='opens cleanly'),nf(f=>f.smoke==='fails')?'bad':'good','Pages open cleanly',`${nf(f=>f.smoke==='partly'||f.smoke==='needs a record')} only partly (a page needs a record), ${nf(f=>f.smoke==='fails')} fail`)+
+    card(nf(risky),nf(risky)?'warn':'good','Changing often, no browser test','5 or more commits in 90 days, not driven by a real browser')+
+    card(nf(f=>f.details&&f.details.sensitive.length),'','Touch roles or payments','their source sits on a path that decides who can do what, or takes money')+
     card((stepsTotal/Math.max(1,people.length)).toFixed(1),'','Clicks on average',`across the ${people.length} functions a person does`);
   const warn=[];
   if(D.unassignedPages&&D.unassignedPages.length) warn.push(`<div class="warn"><b>${D.unassignedPages.length} page(s) belong to no function:</b> ${D.unassignedPages.map(r=>'<span class="mono">'+esc(r)+'</span>').join(', ')}</div>`);
@@ -118,18 +121,27 @@ if(F&&F.length){
   const fa=[...new Set(F.map(f=>f.area))],fw=[...new Set(F.map(f=>f.who))];
   $('farea').innerHTML='<option value="">All areas</option>'+fa.map(a=>`<option>${esc(a)}</option>`).join('');
   $('fwho').innerHTML='<option value="">Anyone or any role</option>'+fw.map(a=>`<option>${esc(a)}</option>`).join('');
+  const behind=f=>{
+    const d=f.details;if(!d||!d.files.length) return '<span class="dim">no page of its own</span>'+(d&&d.docs.length?`<div class="dim">docs: ${d.docs.map(esc).join(', ')}</div>`:'');
+    const cache=c=>c==='Cached'||c==='HttpCached'?'good':c==='Uncached'?'warn':'dim';
+    const deps=d.dependencies.length?`<details><summary>${d.dependencies.length} service${d.dependencies.length===1?'':'s'} and store${d.dependencies.length===1?'':'s'}</summary><ul>${d.dependencies.map(x=>`<li class="mono">${esc(x.name)} <span class="${cache(x.cacheClass)}">${esc(x.cacheClass||(/(Repository|Store|Client)$/.test(x.name)?'not classified':''))}</span></li>`).join('')}</ul></details>`:'<span class="dim">asks for nothing itself</span>';
+    const churn=`<div class="${risky(f)?'warn':'dim'}">${d.changes} commit${d.changes===1?'':'s'} touched it in 90 days${risky(f)?' - changing often, no browser test':''}</div>`;
+    const docs=d.docs.length?`<div class="dim">docs: ${d.docs.map(esc).join(', ')}</div>`:'';
+    const sens=d.sensitive.length?`<div class="bad"><b>touches roles or payments</b> (${d.sensitive.length} file${d.sensitive.length===1?'':'s'})</div>`:'';
+    return deps+churn+docs+sens;
+  };
   const crawlCls=c=>c==='crawled'?'good':c==='not a page'?'dim':'warn';
   function renderF(){
     const q=$('fq').value.toLowerCase(),a=$('farea').value,w=$('fwho').value,s=$('fstatus').value;
     const rows=F.filter(f=>(!q||(f.name+' '+f.id+' '+f.routes.join(' ')).toLowerCase().includes(q))&&(!a||f.area===a)&&(!w||f.who===w)&&(!s||f.status===s));
-    $('ft').innerHTML='<tr><th>Function</th><th class="num">Clicks</th><th>Pages</th><th class="num">Tests</th><th>Automatic checks</th></tr>'+rows.map(f=>{
+    $('ft').innerHTML='<tr><th>Function</th><th class="num">Clicks</th><th>Pages</th><th class="num">Tests</th><th>Automatic checks</th><th>Behind it</th></tr>'+rows.map(f=>{
       const steps=f.steps.length?`<details><summary>${f.clicks} click${f.clicks===1?'':'s'}${f.entries?` + ${f.entries} other`:''}</summary><ol>${f.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></details>`:'<span class="dim">automatic</span>';
       const layers={};f.tests.forEach(t=>layers[t.layer]=(layers[t.layer]||0)+t.count);
       const tags=Object.entries(layers).map(([l,c])=>`<span class="tag ${l}">${c} ${l}</span>`).join('')||'<span class="bad">not covered</span>';
       const list=`<details><summary>${tags}${f.missing.length?` <span class="bad">${f.missing.length} missing</span>`:''}</summary><ul>${f.tests.map(t=>`<li class="mono">${esc(t.name)} <span class="dim">(${t.count} ${esc(t.layer)}, ${esc(t.project.replace('TriviaNight.',''))})</span></li>`).join('')}${f.missing.map(m=>`<li class="mono bad">${esc(m)} - no such test</li>`).join('')}</ul></details>`;
       const pagesCell=f.routes.length?f.routes.map(r=>`<div class="mono">${esc(r)}</div>`).join(''):'<span class="dim">no page</span>';
       const depth=f.navigationDepth==null?'':` <span class="dim">(page is ${f.navigationDepth} click${f.navigationDepth===1?'':'s'} from home)</span>`;
-      return `<tr><td><b>${esc(f.name)}</b><div class="dim">${esc(f.area)} · ${esc(f.who)}${f.walked?' · <span class="good">walked in a browser</span>':''}</div></td><td class="num">${steps}${depth}</td><td>${pagesCell}</td><td class="num">${f.testCount?list:tags}${f.testCount?'':''}</td><td><div><span class="${crawlCls(f.crawl)}">crawl: ${esc(f.crawl)}</span></div><div><span class="${f.smoke==='opens cleanly'?'good':f.smoke==='fails'?'bad':'warn'}">browser: ${esc(f.smoke)}</span></div></td></tr>`;}).join('');
+      return `<tr><td><b>${esc(f.name)}</b><div class="dim">${esc(f.area)} · ${esc(f.who)}${f.walked?' · <span class="good">walked in a browser</span>':''}</div></td><td class="num">${steps}${depth}</td><td>${pagesCell}</td><td class="num">${f.testCount?list:tags}${f.testCount?'':''}</td><td><div><span class="${crawlCls(f.crawl)}">crawl: ${esc(f.crawl)}</span></div><div><span class="${f.smoke==='opens cleanly'?'good':f.smoke==='fails'?'bad':'warn'}">browser: ${esc(f.smoke)}</span></div></td><td>${behind(f)}</td></tr>`;}).join('');
   }
   ['fq','farea','fwho','fstatus'].forEach(id=>$(id).addEventListener('input',renderF));
   renderF();

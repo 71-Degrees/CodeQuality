@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Quality.Tests" />
+    <InternalsVisibleTo Include="Quality.Browser.Tests" />
   </ItemGroup>
 
 </Project>

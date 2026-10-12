@@ -32,6 +32,9 @@ public sealed class FeatureFunction
     /// <summary>Test class names, or <c>Class.Method</c> for one test. A name that matches nothing is reported, never silently ignored.</summary>
     public string[] Tests { get; init; } = [];
 
+    /// <summary>Docs that explain it (file names in the docs folder), on top of the ones that name its pages.</summary>
+    public string[] Docs { get; init; } = [];
+
     public string? Notes { get; init; }
 }
 

@@ -57,7 +57,7 @@ internal static class Program
 
         if (command == "features")
         {
-            return FeaturesCommand(root, options);
+            return await FeaturesCommand(root, options);
         }
 
         var report = new StringBuilder();
@@ -106,9 +106,9 @@ internal static class Program
     }
 
     /// <summary>features: writes reports/feature-map.html (every page, clicks from the home page, the tests that mention it, whether the crawler visits it) and opens it unless --no-open.</summary>
-    private static int FeaturesCommand(string root, Options options)
+    private static async Task<int> FeaturesCommand(string root, Options options)
     {
-        var path = FeatureMap.Write(root, ToolConfig.Load(root));
+        var path = await FeatureMap.WriteAsync(root, ToolConfig.Load(root));
         Console.WriteLine($"Feature map: {path}");
         if (options.Flag("--open"))
         {

@@ -38,10 +38,8 @@ internal static partial class FeatureMap
     [GeneratedRegex("""public\s+(?:async\s+)?(?:Task|void)\s+(\w+)\s*\(""")]
     private static partial Regex TestMethod();
 
-    public static IReadOnlyList<PageRow> Build(string root, ToolConfig config) => Analyze(root, config).Pages;
-
     /// <summary>The pages, and (when the site keeps a list of its functions) the functions checked against them and against the tests.</summary>
-    public static (IReadOnlyList<PageRow> Pages, FunctionsResult? Functions) Analyze(string root, ToolConfig config)
+    public static async Task<(IReadOnlyList<PageRow> Pages, FunctionsResult? Functions)> AnalyzeAsync(string root, ToolConfig config)
     {
         var razor = ReadRazor(root, config);
         var pages = DiscoverPages(razor);
@@ -51,7 +49,26 @@ internal static partial class FeatureMap
         var smoke = PageSmoke.Read(root, config);
         var rows = pages.Select(p => WithSmoke(RowFor(p, clicks, tests, skip, config), smoke)).OrderBy(r => r.Area, StringComparer.Ordinal).ThenBy(r => r.Route, StringComparer.Ordinal).ToList();
         var registry = FeatureRegistryFile.Load(root, config.Features);
-        return (rows, registry is null ? null : FeatureFunctions.Resolve(registry, rows, FeatureFunctions.IndexTests(tests)));
+        if (registry is null)
+        {
+            return (rows, null);
+        }
+
+        var resolved = FeatureFunctions.Resolve(registry, rows, FeatureFunctions.IndexTests(tests));
+        return (rows, await WithDetailsAsync(root, config, registry, resolved, pages, razor));
+    }
+
+    // What is behind each function: what its pages ask for and how that is cached, how often its source changed lately, which docs mention it, whether it touches roles or payments.
+    private static async Task<FunctionsResult> WithDetailsAsync(string root, ToolConfig config, FeatureRegistryFile registry, FunctionsResult resolved, IReadOnlyList<PageInfo> pages, IReadOnlyDictionary<string, string> razor)
+    {
+        var byStem = razor.Keys.GroupBy(f => Path.GetFileNameWithoutExtension(f)).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var classes = FeatureDetails.ReadClasses(root, config.Features);
+        var docs = FeatureDetails.ReadDocs(root, config.Features);
+        var changes = await FeatureDetails.ReadChangesAsync(root, config.Features?.ChurnDays ?? 90);
+        var sensitive = config.Release?.SensitivePaths ?? [];
+        var byId = registry.Functions.ToDictionary(f => f.Id, f => f);
+        var rows = resolved.Functions.Select(r => r with { Details = FeatureDetails.For(byId[r.Id], pages, razor, byStem, classes, changes, docs, sensitive) }).ToList();
+        return resolved with { Functions = rows };
     }
 
     private static PageRow WithSmoke(PageRow row, IReadOnlyDictionary<string, PageSmokeOutcome> smoke) =>
@@ -234,11 +251,11 @@ internal static partial class FeatureMap
         return FeatureMapPage.Template.Replace("/*DATA*/", json, StringComparison.Ordinal).Replace("/*TITLE*/", System.Net.WebUtility.HtmlEncode(title), StringComparison.Ordinal);
     }
 
-    public static string Write(string root, ToolConfig config)
+    public static async Task<string> WriteAsync(string root, ToolConfig config)
     {
         var path = Path.Combine(Repo.OutputRoot(root), "reports", "feature-map.html");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var (pages, functions) = Analyze(root, config);
+        var (pages, functions) = await AnalyzeAsync(root, config);
         File.WriteAllText(path, Render(config.Title(root), pages, functions));
         return path;
     }

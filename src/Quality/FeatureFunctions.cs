@@ -15,7 +15,7 @@ internal sealed record TestCover(string Name, string Project, string Layer, int 
 /// <summary>One function of the site, checked against the code: how many clicks, which tests cover it, whether they exist, whether the crawler could reach it.</summary>
 internal sealed record FunctionRow(
     string Id, string Name, string Area, string Who, IReadOnlyList<string> Steps, int Clicks, int Entries, IReadOnlyList<string> Routes, bool Walked,
-    IReadOnlyList<TestCover> Tests, IReadOnlyList<string> Missing, int TestCount, string Status, string Crawl, string Smoke, int? NavigationDepth, string? Notes);
+    IReadOnlyList<TestCover> Tests, IReadOnlyList<string> Missing, int TestCount, string Status, string Crawl, string Smoke, int? NavigationDepth, string? Notes, FunctionDetails? Details = null);
 
 /// <summary>What the check found: the functions, the pages that belong to none, and the routes a function names that are not pages.</summary>
 internal sealed record UnmappedTests(string Class, string Project, int Count);
