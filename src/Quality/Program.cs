@@ -25,7 +25,7 @@
 //   quality scripts
 //   quality crawl [--url https://staging.example.com] [--max-pages 120] [--desktop] [--delay 150]
 //   quality all --url http://localhost:5199     # everything, including a crawl of a local site
-//   add --open to any run to open the HTML report (reports/quality-latest.html) in Chrome
+//   add --open to any run to open the HTML report (reports/quality-latest.html) in Chrome; quality.json's "openReport" ("always" / "onFindings") does it without the flag, --no-open overrides it
 // Exit code: 0 clean, 1 something new/worse or a crawl error, 2 a check could not run. A report is written to reports/quality-<date>_<time>.txt (a dated copy per run, so several runs a day all survive).
 //
 // One-time for the crawler: `pwsh <the tool folder>/bin/Debug/net10.0/playwright.ps1 install chromium`, and `npm install` in the repository (axe-core, the accessibility engine, is a dev dependency there).
@@ -76,7 +76,7 @@ internal static class Program
         }
 
         Say($"HTML report: {html}");
-        if (options.Flag("--open"))
+        if (HtmlReport.ShouldOpen(config.OpenReport, worst, options.Flag("--open"), options.Flag("--no-open")))
         {
             HtmlReport.Open(html);
         }

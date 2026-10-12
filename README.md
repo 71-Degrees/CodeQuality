@@ -31,7 +31,7 @@ dotnet run --project tools/CodeQuality/src/Quality -- smells --update-baseline  
 dotnet run --project tools/CodeQuality/src/Refactor -- fix-analyzers   # dry run of the mechanical analyzer fixes
 ```
 
-Add `--open` to any Quality run to open `reports/quality-latest.html` in Chrome. Exit code: 0 clean, 1 something new or worse (or a crawl error), 2 a check could not run.
+Add `--open` to any Quality run to open `reports/quality-latest.html` in Chrome, or set `"openReport": "always"` (every run) or `"onFindings"` (only when something is new or worse) in `quality/quality.json` so each run puts the report in front of you; `--no-open` overrides the setting for scripted runs. Exit code: 0 clean, 1 something new or worse (or a crawl error), 2 a check could not run.
 
 First time in a site: run `smells` and `analyzers` with `--update-baseline`, then commit `quality/baseline.json`, `quality/history.json` and `quality/quality.json`. Add `reports/` to the site's `.gitignore`.
 If the site already has a `quality/baseline.json` history in git, `history --backfill` rebuilds the timeline from it.

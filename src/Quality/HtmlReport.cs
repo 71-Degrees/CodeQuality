@@ -102,6 +102,29 @@ internal static class HtmlReport
         return new { title = info.Title, why = info.Why, fix = info.Fix, automation = info.Automation.ToString() };
     }
 
+    /// <summary>Whether a run should open the report by itself: asked for on the command line (<c>--open</c>), or allowed by the site's <c>openReport</c> setting and not switched off (<c>--no-open</c>).</summary>
+    /// <param name="mode">The site's <see cref="CodeQuality.Common.ToolConfig.OpenReport"/>.</param>
+    /// <param name="exitCode">The run's result: 0 clean, 1 something new or worse, 2 a check could not run.</param>
+    public static bool ShouldOpen(string? mode, int exitCode, bool openFlag, bool noOpenFlag)
+    {
+        if (openFlag)
+        {
+            return true;
+        }
+
+        if (noOpenFlag)
+        {
+            return false;
+        }
+
+        return mode?.Trim().ToLowerInvariant() switch
+        {
+            "always" => true,
+            "onfindings" => exitCode != 0,
+            _ => false,
+        };
+    }
+
     /// <summary>Opens the report in Chrome (the default browser if Chrome is not found).</summary>
     public static void Open(string path)
     {

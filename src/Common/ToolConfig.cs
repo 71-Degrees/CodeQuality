@@ -82,6 +82,10 @@ public sealed class ToolConfig
 
     public Thresholds Limits { get; init; } = new();
 
+    /// <summary>When a run opens <c>reports/quality-latest.html</c> in the browser by itself: <c>never</c> (the default; <c>--open</c> still does it), <c>always</c> (every run, so the report is in front of the developer
+    /// at each iteration) or <c>onFindings</c> (only when something is new or worse, or a check could not run). <c>--no-open</c> overrides it for scripted runs.</summary>
+    public string OpenReport { get; init; } = "never";
+
     /// <summary>How the tools are run from this repository's root, for the "how to run this yourself" panel.</summary>
     public string ToolCommand { get; init; } = "dotnet run --project tools/CodeQuality/src/Quality --";
 
