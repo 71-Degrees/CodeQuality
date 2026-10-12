@@ -77,6 +77,9 @@ public sealed class ToolConfig
     /// <summary>The dashboard's release panel: where builds go, what is running there and a button into the deploy console. Absent: no panel.</summary>
     public ReleaseSettings? Release { get; init; }
 
+    /// <summary>Settings for the feature map (<c>quality features</c>): what needs a signed-in visitor. Absent: everything counts as public.</summary>
+    public FeatureSettings? Features { get; init; }
+
     /// <summary>Analyzer rules to leave out of the report, each with the reason, added to the built-in list.</summary>
     public Dictionary<string, string> IgnoredAnalyzerRules { get; init; } = new();
 

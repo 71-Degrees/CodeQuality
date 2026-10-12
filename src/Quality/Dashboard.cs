@@ -227,7 +227,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const P=D.points, G=D.gate;
 const at=P.length?P[P.length-1]:null, start=P.length?P[0]:null, prev=P.length>1?P[P.length-2]:null;
-$('meta').innerHTML=`Generated ${esc(D.generated)} at commit ${esc(D.commit)}. ${P.length} commits measured since ${start?esc(start.at.slice(0,10)):'-'}. <a href="quality-latest.html">Open the full report</a>.`;
+$('meta').innerHTML=`Generated ${esc(D.generated)} at commit ${esc(D.commit)}. ${P.length} commits measured since ${start?esc(start.at.slice(0,10)):'-'}. <a href="quality-latest.html">Open the full report</a>. <a href="feature-map.html">Open the feature map</a>.`;
 
 function delta(now,before,goodDown){
   if(before==null||now==null) return '';

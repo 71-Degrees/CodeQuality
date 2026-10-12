@@ -37,7 +37,7 @@ using CodeQuality.Quality;
 
 internal static class Program
 {
-    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history" };
+    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features" };
 
     private static async Task<int> Main(string[] args)
     {
@@ -53,6 +53,11 @@ internal static class Program
         if (command == "history")
         {
             return await HistoryCommand(root, options);
+        }
+
+        if (command == "features")
+        {
+            return FeaturesCommand(root, options);
         }
 
         var report = new StringBuilder();
@@ -98,6 +103,19 @@ internal static class Program
         File.WriteAllText(file, report.ToString());
         Console.WriteLine($"Report: {file}");
         return worst;
+    }
+
+    /// <summary>features: writes reports/feature-map.html (every page, clicks from the home page, the tests that mention it, whether the crawler visits it) and opens it unless --no-open.</summary>
+    private static int FeaturesCommand(string root, Options options)
+    {
+        var path = FeatureMap.Write(root, ToolConfig.Load(root));
+        Console.WriteLine($"Feature map: {path}");
+        if (options.Flag("--open"))
+        {
+            HtmlReport.Open(path);
+        }
+
+        return 0;
     }
 
     /// <summary>Adds this run to the quality timeline (quality/history.json) when its numbers changed, and returns the timeline.</summary>
