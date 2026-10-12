@@ -31,6 +31,20 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}.mono{font:13px
 </style></head><body><main>
 <h1>/*TITLE*/ - feature map</h1>
 <div class="dim" id="meta"></div>
+<section id="fn-section" hidden>
+<h2>Functions</h2>
+<div class="dim">What a person can do, in their words. Steps and test lists are curated in quality/features.json and checked against the code every time: a test that does not exist is flagged, and so is a page that belongs to no function.</div>
+<div class="hero" id="fn-hero"></div>
+<div id="fn-warn"></div>
+<div class="controls">
+  <input id="fq" type="search" placeholder="Filter functions" aria-label="Filter functions">
+  <select id="farea" aria-label="Function area"></select>
+  <select id="fwho" aria-label="Who"></select>
+  <select id="fstatus" aria-label="Function test status"><option value="">Any test status</option><option value="none">Not covered</option><option value="weak">Unit or component tests only</option><option value="browser">Has a browser test</option></select>
+</div>
+<div class="scroll"><table id="ft"></table></div>
+</section>
+<h2>Pages</h2>
 <div class="hero" id="hero"></div>
 <div class="controls">
   <input id="q" type="search" placeholder="Filter by route or file" aria-label="Filter by route or file">
@@ -75,6 +89,48 @@ function render(){
 }
 ['q','area','status','access'].forEach(id=>$(id).addEventListener('input',render));
 render();
+
+// ---- functions ----
+const F=D.functions;
+if(F&&F.length){
+  $('fn-section').hidden=false;
+  const fstatus=f=>f.status;
+  const nf=g=>F.filter(g).length;
+  const people=F.filter(f=>f.who!=='System');
+  const stepsTotal=people.reduce((a,f)=>a+f.clicks,0);
+  $('fn-hero').innerHTML=
+    card(F.length,'','Functions',`${people.length} a person does, ${F.length-people.length} that happen on their own`)+
+    card(nf(f=>f.status==='none'),nf(f=>f.status==='none')?'bad':'good','Not covered by any test','no test class named for them exists')+
+    card(nf(f=>f.status==='browser'),'','Have a browser test','a real browser drives part of them')+
+    card(nf(f=>f.walked),'','Walked in a real browser','from start to finish by a Playwright test')+
+    card((stepsTotal/Math.max(1,people.length)).toFixed(1),'','Clicks on average',`across the ${people.length} functions a person does`);
+  const warn=[];
+  if(D.unassignedPages&&D.unassignedPages.length) warn.push(`<div class="warn"><b>${D.unassignedPages.length} page(s) belong to no function:</b> ${D.unassignedPages.map(r=>'<span class="mono">'+esc(r)+'</span>').join(', ')}</div>`);
+  if(D.unknownRoutes&&D.unknownRoutes.length) warn.push(`<div class="bad"><b>Routes that are not pages:</b> ${D.unknownRoutes.map(u=>'<span class="mono">'+esc(u.function)+': '+esc(u.route)+'</span>').join(', ')}</div>`);
+  const missing=F.filter(f=>f.missing.length);
+  if(missing.length) warn.push(`<div class="bad"><b>Tests named in the list that do not exist:</b> ${missing.map(f=>esc(f.id)+' ('+f.missing.map(esc).join(', ')+')').join('; ')}</div>`);
+  const um=D.unmappedTests||[];
+  if(um.length) warn.push(`<details><summary class="warn">${um.length} test classes (${um.reduce((a,t)=>a+t.count,0)} tests) are named by no function - missing from the list, or testing something it does not mention</summary><ul>${um.map(t=>`<li class="mono">${esc(t.class)} <span class="dim">(${t.count}, ${esc(t.project.replace('TriviaNight.',''))})</span></li>`).join('')}</ul></details>`);
+  $('fn-warn').innerHTML=warn.join('')||'<div class="good">Every page belongs to a function and every test named exists.</div>';
+  const fa=[...new Set(F.map(f=>f.area))],fw=[...new Set(F.map(f=>f.who))];
+  $('farea').innerHTML='<option value="">All areas</option>'+fa.map(a=>`<option>${esc(a)}</option>`).join('');
+  $('fwho').innerHTML='<option value="">Anyone or any role</option>'+fw.map(a=>`<option>${esc(a)}</option>`).join('');
+  const crawlCls=c=>c==='crawled'?'good':c==='not a page'?'dim':'warn';
+  function renderF(){
+    const q=$('fq').value.toLowerCase(),a=$('farea').value,w=$('fwho').value,s=$('fstatus').value;
+    const rows=F.filter(f=>(!q||(f.name+' '+f.id+' '+f.routes.join(' ')).toLowerCase().includes(q))&&(!a||f.area===a)&&(!w||f.who===w)&&(!s||f.status===s));
+    $('ft').innerHTML='<tr><th>Function</th><th class="num">Clicks</th><th>Pages</th><th class="num">Tests</th><th>Crawl</th></tr>'+rows.map(f=>{
+      const steps=f.steps.length?`<details><summary>${f.clicks} click${f.clicks===1?'':'s'}${f.entries?` + ${f.entries} other`:''}</summary><ol>${f.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></details>`:'<span class="dim">automatic</span>';
+      const layers={};f.tests.forEach(t=>layers[t.layer]=(layers[t.layer]||0)+t.count);
+      const tags=Object.entries(layers).map(([l,c])=>`<span class="tag ${l}">${c} ${l}</span>`).join('')||'<span class="bad">not covered</span>';
+      const list=`<details><summary>${tags}${f.missing.length?` <span class="bad">${f.missing.length} missing</span>`:''}</summary><ul>${f.tests.map(t=>`<li class="mono">${esc(t.name)} <span class="dim">(${t.count} ${esc(t.layer)}, ${esc(t.project.replace('TriviaNight.',''))})</span></li>`).join('')}${f.missing.map(m=>`<li class="mono bad">${esc(m)} - no such test</li>`).join('')}</ul></details>`;
+      const pagesCell=f.routes.length?f.routes.map(r=>`<div class="mono">${esc(r)}</div>`).join(''):'<span class="dim">no page</span>';
+      const depth=f.navigationDepth==null?'':` <span class="dim">(page is ${f.navigationDepth} click${f.navigationDepth===1?'':'s'} from home)</span>`;
+      return `<tr><td><b>${esc(f.name)}</b><div class="dim">${esc(f.area)} · ${esc(f.who)}${f.walked?' · <span class="good">walked in a browser</span>':''}</div></td><td class="num">${steps}${depth}</td><td>${pagesCell}</td><td class="num">${f.testCount?list:tags}${f.testCount?'':''}</td><td><span class="${crawlCls(f.crawl)}">${esc(f.crawl)}</span></td></tr>`;}).join('');
+  }
+  ['fq','farea','fwho','fstatus'].forEach(id=>$(id).addEventListener('input',renderF));
+  renderF();
+}
 </script></main></body></html>
 """;
 }

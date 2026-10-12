@@ -11,4 +11,7 @@ public sealed class FeatureSettings
 {
     /// <summary>Route prefixes that need a signed-in visitor (the crawler cannot see them without logging in).</summary>
     public string[] SignedInPrefixes { get; init; } = [];
+
+    /// <summary>The curated list of functions (see <see cref="FeatureRegistryFile"/>), relative to the root. Default: quality/features.json; without the file the map shows pages only.</summary>
+    public string? Registry { get; init; }
 }

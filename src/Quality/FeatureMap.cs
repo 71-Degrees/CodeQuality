@@ -38,14 +38,19 @@ internal static partial class FeatureMap
     [GeneratedRegex("""public\s+(?:async\s+)?(?:Task|void)\s+(\w+)\s*\(""")]
     private static partial Regex TestMethod();
 
-    public static IReadOnlyList<PageRow> Build(string root, ToolConfig config)
+    public static IReadOnlyList<PageRow> Build(string root, ToolConfig config) => Analyze(root, config).Pages;
+
+    /// <summary>The pages, and (when the site keeps a list of its functions) the functions checked against them and against the tests.</summary>
+    public static (IReadOnlyList<PageRow> Pages, FunctionsResult? Functions) Analyze(string root, ToolConfig config)
     {
         var razor = ReadRazor(root, config);
         var pages = DiscoverPages(razor);
         var clicks = Depths(pages, razor);
         var tests = ReadTests(root, config);
         var skip = string.IsNullOrWhiteSpace(config.Crawl.SkipPattern) ? null : new Regex(config.Crawl.SkipPattern, RegexOptions.IgnoreCase);
-        return pages.Select(p => RowFor(p, clicks, tests, skip, config)).OrderBy(r => r.Area, StringComparer.Ordinal).ThenBy(r => r.Route, StringComparer.Ordinal).ToList();
+        var rows = pages.Select(p => RowFor(p, clicks, tests, skip, config)).OrderBy(r => r.Area, StringComparer.Ordinal).ThenBy(r => r.Route, StringComparer.Ordinal).ToList();
+        var registry = FeatureRegistryFile.Load(root, config.Features);
+        return (rows, registry is null ? null : FeatureFunctions.Resolve(registry, rows, FeatureFunctions.IndexTests(tests)));
     }
 
     private static PageRow RowFor(PageInfo page, Dictionary<string, (int Clicks, string Via)> clicks, IReadOnlyList<(string Project, string File, string Text)> tests, Regex? skip, ToolConfig config)
@@ -219,9 +224,9 @@ internal static partial class FeatureMap
 
     private static readonly JsonSerializerOptions CamelCase = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
-    public static string Render(string title, IReadOnlyList<PageRow> rows)
+    public static string Render(string title, IReadOnlyList<PageRow> rows, FunctionsResult? functions = null)
     {
-        var json = JsonSerializer.Serialize(new { generated = DateTime.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture), pages = rows }, CamelCase).Replace("<", "\\u003c", StringComparison.Ordinal);
+        var json = JsonSerializer.Serialize(new { generated = DateTime.Now.ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture), pages = rows, functions = functions?.Functions, unassignedPages = functions?.UnassignedPages, unknownRoutes = functions?.UnknownRoutes.Select(u => new { u.Function, u.Route }), unmappedTests = functions?.Unmapped }, CamelCase).Replace("<", "\\u003c", StringComparison.Ordinal);
         return FeatureMapPage.Template.Replace("/*DATA*/", json, StringComparison.Ordinal).Replace("/*TITLE*/", System.Net.WebUtility.HtmlEncode(title), StringComparison.Ordinal);
     }
 
@@ -229,7 +234,8 @@ internal static partial class FeatureMap
     {
         var path = Path.Combine(Repo.OutputRoot(root), "reports", "feature-map.html");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, Render(config.Title(root), Build(root, config)));
+        var (pages, functions) = Analyze(root, config);
+        File.WriteAllText(path, Render(config.Title(root), pages, functions));
         return path;
     }
 }
