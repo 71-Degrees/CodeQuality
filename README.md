@@ -26,6 +26,7 @@ dotnet run --project tools/CodeQuality/src/Quality -- smells           # seconds
 dotnet run --project tools/CodeQuality/src/Quality -- analyzers        # a full build with the CA*/IDE* analyzers
 dotnet run --project tools/CodeQuality/src/Quality -- scripts          # the npm checks named in scriptChecks
 dotnet run --project tools/CodeQuality/src/Quality -- crawl            # headless Chromium walk of crawl.defaultUrl (or --url)
+dotnet run --project tools/CodeQuality/src/Quality -- tests            # every test project with coverage (--include-browser adds the browser tests)
 dotnet run --project tools/CodeQuality/src/Quality -- history          # the timeline summary (--backfill rebuilds it from git)
 dotnet run --project tools/CodeQuality/src/Quality -- smells --update-baseline   # accept today's state (after fixing things, or on purpose)
 dotnet run --project tools/CodeQuality/src/Refactor -- fix-analyzers   # dry run of the mechanical analyzer fixes
@@ -82,6 +83,7 @@ Every setting is optional. With no file the tools check `src` and `tools` of the
 - **Newer checks and the timeline:** rules added after the first recording are listed in `Rules.Newer`; the timeline's headline numbers leave them out (so adding a check never looks like quality getting worse) and
   they get their own row.
 - **Crawl:** Playwright, phone-sized by default, read-only; broken links, console and network errors, SEO basics, sideways scrolling, images with no alt, axe-core accessibility.
+- **Tests and coverage:** `quality tests` runs each test project (`testProjects` in quality.json, else every project one folder down under the test folders, browser tests only with `--include-browser`) with the coverage collector; the report also reads whatever the test projects last wrote to `reports/test-results/<project>` (a TRX and a Cobertura file each) on every run, so a site whose pre-push check runs its tests with the same arguments never has a report more than a push old. It shows the number of tests, failures, and line coverage per project folder (our own C# source only: Razor components are compiled into generated code the coverage cannot map back), and the timeline records them. Test projects need the `coverlet.collector` package.
   One-time: `pwsh src/Quality/bin/Debug/net10.0/playwright.ps1 install chromium`.
 
 ## Browser tests (`src/Quality.Browser`)
