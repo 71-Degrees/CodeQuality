@@ -49,6 +49,16 @@ public sealed class BrowserToolsTests
     }
 
     [Fact]
+    public void BrowserDataFollowsTheOutputRootWhenOneIsNamed()
+    {
+        var elsewhere = Path.GetTempPath();
+
+        Assert.Equal("/repo", BrowserData.OutputRoot("/repo", null));
+        Assert.Equal(elsewhere, BrowserData.OutputRoot("/repo", elsewhere));
+        Assert.Equal("/repo", BrowserData.OutputRoot("/repo", Path.Combine(elsewhere, "cq-missing-" + Guid.NewGuid().ToString("N"))));
+    }
+
+    [Fact]
     public async Task WaitingForTheSiteReturnsOnceItAnswers()
     {
         var port = SiteHost.FreePort();

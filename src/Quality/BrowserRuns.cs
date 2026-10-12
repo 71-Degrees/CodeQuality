@@ -26,7 +26,7 @@ internal static class BrowserRuns
             return null;
         }
 
-        var path = Path.Combine(root, config.BrowserRunLog);
+        var path = Path.Combine(Repo.OutputRoot(root), config.BrowserRunLog);
         return File.Exists(path) ? Parse(File.ReadLines(path)) : null;
     }
 

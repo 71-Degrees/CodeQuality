@@ -50,7 +50,7 @@ internal sealed class Collected
 
     public static string Now => DateTime.Now.ToString("yyyy-MM-dd HH:mm");
 
-    private static string StatePath(string root) => Path.Combine(root, "reports", "quality-state.json");
+    private static string StatePath(string root) => Path.Combine(Repo.OutputRoot(root), "reports", "quality-state.json");
 
     public static Collected Load(string root) => JsonState.Load<Collected>(StatePath(root));
 
@@ -101,11 +101,11 @@ internal static class HtmlReport
             ranAt = new { smells = collected.SmellsAt, analyzers = collected.AnalyzersAt, crawl = collected.CrawlAt, scripts = collected.ScriptsAt, tests = collected.TestsAt },
         };
         var json = JsonSerializer.Serialize(data).Replace("<", "\\u003c", StringComparison.Ordinal);
-        var path = Path.Combine(root, "reports", $"quality-{DateTime.Now:yyyy-MM-dd_HHmm}.html");
+        var path = Path.Combine(Repo.OutputRoot(root), "reports", $"quality-{DateTime.Now:yyyy-MM-dd_HHmm}.html");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var page = Template.Replace("/*DATA*/", json, StringComparison.Ordinal).Replace("/*TITLE*/", System.Net.WebUtility.HtmlEncode(config.Title(root)), StringComparison.Ordinal);
         await File.WriteAllTextAsync(path, page);
-        File.Copy(path, Path.Combine(root, "reports", "quality-latest.html"), overwrite: true);
+        File.Copy(path, Path.Combine(Repo.OutputRoot(root), "reports", "quality-latest.html"), overwrite: true);
         return path;
     }
 

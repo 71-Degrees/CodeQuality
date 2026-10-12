@@ -68,7 +68,7 @@ internal sealed class History
 {
     public List<Snapshot> Snapshots { get; set; } = new();
 
-    private static string PathFor(string root) => Path.Combine(root, "quality", "history.json");
+    private static string PathFor(string root) => Path.Combine(Repo.OutputRoot(root), "quality", "history.json");
 
     public static History Load(string root) => JsonState.Load<History>(PathFor(root));
 

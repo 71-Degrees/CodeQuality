@@ -60,7 +60,7 @@ internal static class TestResults
 {
     private static readonly XNamespace Trx = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010";
 
-    public static string ResultsFolder(string root) => Path.Combine(root, "reports", "test-results");
+    public static string ResultsFolder(string root) => Path.Combine(Repo.OutputRoot(root), "reports", "test-results");
 
     /// <summary>The summary of whatever is in the results folder, or null when no test project has written results yet.</summary>
     public static TestSummary? Read(string root, ToolConfig config)

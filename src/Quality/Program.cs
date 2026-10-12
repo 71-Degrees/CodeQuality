@@ -92,7 +92,7 @@ internal static class Program
 
         Say();
         Say(worst switch { 0 => "All clear.", 1 => "Something new or worse needs a look.", _ => "A check could not run." });
-        var file = Path.Combine(root, "reports", $"quality-{DateTime.Now:yyyy-MM-dd_HHmm}.txt");
+        var file = Path.Combine(Repo.OutputRoot(root), "reports", $"quality-{DateTime.Now:yyyy-MM-dd_HHmm}.txt");
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, report.ToString());
         Console.WriteLine($"Report: {file}");
