@@ -31,6 +31,9 @@ internal sealed class Collected
     /// <summary>What the test projects last did (counts, failures, line coverage), read from reports/test-results.</summary>
     public TestSummary? Tests { get; set; }
 
+    /// <summary>The browser scenarios over many runs, from the browser tests' run log.</summary>
+    public List<ScenarioTiming>? BrowserRuns { get; set; }
+
     public string? SmellsAt { get; set; }
 
     public string? AnalyzersAt { get; set; }
@@ -91,9 +94,10 @@ internal static class HtmlReport
                 failed = collected.Tests.Failed,
                 skipped = collected.Tests.Skipped,
                 coverage = collected.Tests.CoverageRate,
-                projects = collected.Tests.Projects.Select(t => new { name = t.Name, total = t.Total, passed = t.Passed, failed = t.Failed, skipped = t.Skipped, seconds = t.Seconds, failures = t.Failures }).ToList(),
+                projects = collected.Tests.Projects.Select(t => new { name = t.Name, total = t.Total, passed = t.Passed, failed = t.Failed, skipped = t.Skipped, seconds = t.Seconds, failures = t.Failures, at = t.At, browser = t.IsBrowser }).ToList(),
                 groups = collected.Tests.Coverage.Select(g => new { name = g.Name, covered = g.Covered, lines = g.Lines, rate = g.Rate }).ToList(),
             },
+            browserRuns = collected.BrowserRuns?.Select(r => new { name = r.Name, runs = r.Runs, latest = r.LatestMilliseconds, previous = r.PreviousMilliseconds, best = r.BestMilliseconds, problems = r.Problems, at = r.At }).ToList(),
             ranAt = new { smells = collected.SmellsAt, analyzers = collected.AnalyzersAt, crawl = collected.CrawlAt, scripts = collected.ScriptsAt, tests = collected.TestsAt },
         };
         var json = JsonSerializer.Serialize(data).Replace("<", "\\u003c", StringComparison.Ordinal);
@@ -296,7 +300,11 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
   } else {
     const cov = T.coverage === null || T.coverage === undefined ? '' : `<br><b>${Math.round(T.coverage * 100)}%</b> of source lines are run by the tests`;
     const grown = firstTests && firstTests.Tests.Total !== T.total ? `<br>${T.total > firstTests.Tests.Total ? 'up' : 'down'} from <b>${firstTests.Tests.Total}</b> when first measured` : '';
-    testsCard = big(T.total.toLocaleString(), 'tests', `${T.failed ? `<span class="bad"><b>${T.failed} failing</b></span>, ` : ''}${T.passed} passing${T.skipped ? `, ${T.skipped} skipped` : ''}${cov}${grown}<br><span class="dim">as of ${esc(T.at)}</span>`, T.failed ? 'bad' : 'good');
+    // The browser tests run on demand, so they have their own line with their own last-run time.
+    const B = T.projects.filter(p => p.browser), bTotal = B.reduce((n, p) => n + p.total, 0), bFailed = B.reduce((n, p) => n + p.failed, 0);
+    const bAt = B.map(p => p.at).sort().pop();
+    const browser = B.length ? `<br>plus <b>${bTotal}</b> browser tests, ${bFailed ? `<span class="bad"><b>${bFailed} failing</b></span>` : 'all passing'} <span class="dim">(last run ${esc(bAt)})</span>` : '<br><span class="dim">browser tests not run yet: <code>quality tests --include-browser</code></span>';
+    testsCard = big(T.total.toLocaleString(), 'tests', `${T.failed ? `<span class="bad"><b>${T.failed} failing</b></span>, ` : ''}${T.passed} passing${T.skipped ? `, ${T.skipped} skipped` : ''}${cov}${grown}${browser}<br><span class="dim">as of ${esc(T.at)}</span>`, T.failed || bFailed ? 'bad' : 'good');
   }
 
   $('hero').innerHTML =
@@ -305,10 +313,11 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
     testsCard;
 
   const attention = count('new') + count('worse');
-  $('status').innerHTML = attention
-    ? `<div class="banner alert">${attention} finding(s) new or worse than the baseline: fix them, or accept them on purpose (see "How to run this yourself").</div>`
-    : (T && T.failed ? '' : '<div class="banner ok">Nothing is new or worse than the baseline, and no test is failing.</div>') +
-      (T && T.failed ? `<div class="banner alert">${T.failed} test(s) failing: see "Tests and coverage" below.</div>` : '');
+  const failedTests = T ? T.projects.reduce((n, p) => n + p.failed, 0) : 0;
+  $('status').innerHTML =
+    (attention ? `<div class="banner alert">${attention} finding(s) new or worse than the baseline: fix them, or accept them on purpose (see "How to run this yourself").</div>` : '') +
+    (failedTests ? `<div class="banner alert">${failedTests} test(s) failing (browser tests included): see "Tests and coverage" below.</div>` : '') +
+    (attention || failedTests ? '' : '<div class="banner ok">Nothing is new or worse than the baseline, and no test is failing.</div>');
 
   const chip = (n, t, alert) => `<span class="chip${alert ? ' alert' : ''}"><b>${n}</b>${t}</span>`;
   const mech = F.filter(f => f.automation === 'Mechanical').length;
@@ -326,9 +335,19 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
   if (!T) { $('tests').innerHTML = '<div class="panel dim">No test results yet. <code>quality tests</code> runs every test project with coverage; the pre-push check also writes them each time it runs the tests.</div>'; return; }
   const pct = r => Math.round(r * 1000) / 10;
   let html = `<div class="dim">As of ${esc(T.at)}. Coverage is line coverage of our own C# source that the tests load; Razor components are compiled into generated code the coverage cannot map back, so they are not in it.</div>`;
-  html += '<div class="scroll"><table><tr><th>Test project</th><th class="num">Tests</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Skipped</th><th class="num">Seconds</th></tr>' +
-    T.projects.map(p => `<tr><td>${esc(p.name)}</td><td class="num">${p.total}</td><td class="num">${p.passed}</td><td class="num ${p.failed ? 'new' : ''}">${p.failed}</td><td class="num">${p.skipped}</td><td class="num">${p.seconds}</td></tr>`).join('') +
-    `<tr><td><b>All</b></td><td class="num"><b>${T.total}</b></td><td class="num"><b>${T.passed}</b></td><td class="num"><b>${T.failed}</b></td><td class="num"><b>${T.skipped}</b></td><td class="num"></td></tr></table></div>`;
+  html += '<div class="scroll"><table><tr><th>Test project</th><th class="num">Tests</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Skipped</th><th class="num">Seconds</th><th>Last run</th></tr>' +
+    T.projects.map(p => `<tr><td>${esc(p.name)}${p.browser ? ' <span class="tag">real browser, on demand</span>' : ''}</td><td class="num">${p.total}</td><td class="num">${p.passed}</td><td class="num ${p.failed ? 'new' : ''}">${p.failed}</td><td class="num">${p.skipped}</td><td class="num">${p.seconds}</td><td class="dim">${esc(p.at)}</td></tr>`).join('') +
+    `<tr><td><b>Unit and component tests</b></td><td class="num"><b>${T.total}</b></td><td class="num"><b>${T.passed}</b></td><td class="num"><b>${T.failed}</b></td><td class="num"><b>${T.skipped}</b></td><td class="num"></td><td></td></tr></table></div>`;
+  if (!T.projects.some(p => p.browser)) {
+    html += '<div class="panel dim">The browser tests have not been run yet (they start the site and a real browser, so they run on demand): <code>quality tests --include-browser</code>.</div>';
+  }
+  if (D.browserRuns && D.browserRuns.length) {
+    const ms = v => v === null || v === undefined ? '<span class="dim">first run</span>' : (v / 1000).toFixed(2) + ' s';
+    const change = r => r.previous === null || r.previous === undefined ? '' : (r.latest === r.previous ? '<span class="dim">same</span>' : `<span class="${r.latest > r.previous ? 'new' : 'Mechanical'}">${r.latest > r.previous ? '+' : '&minus;'}${Math.abs(Math.round((r.latest - r.previous) / Math.max(r.previous, 1) * 100))}%</span>`);
+    html += '<h3>Browser scenarios over time</h3><div class="dim">Each scenario\'s last time against the run before it and its best, from the browser tests\' append-only run log: a scenario that got slower, or a site that takes longer to start, shows here before anyone notices.</div>' +
+      '<div class="scroll"><table><tr><th>Scenario</th><th class="num">Last</th><th class="num">Before</th><th>Change</th><th class="num">Best</th><th class="num">Runs</th><th class="num">Page problems</th><th>Last run</th></tr>' +
+      D.browserRuns.map(r => `<tr><td>${esc(r.name)}</td><td class="num">${ms(r.latest)}</td><td class="num">${ms(r.previous)}</td><td>${change(r)}</td><td class="num">${ms(r.best)}</td><td class="num">${r.runs}</td><td class="num ${r.problems ? 'new' : ''}">${r.problems}</td><td class="dim">${esc(r.at)}</td></tr>`).join('') + '</table></div>';
+  }
   const failing = T.projects.filter(p => p.failures.length);
   if (failing.length) {
     html += '<div class="panel"><b class="bad">Failing tests</b><ul>' + failing.flatMap(p => p.failures.map(f => `<li><span class="mono">${esc(p.name)}</span>: ${esc(f)}</li>`)).join('') + '</ul></div>';

@@ -63,6 +63,9 @@ public sealed class ToolConfig
     /// <summary>The test projects to run for the test counts and coverage (project files, or folders holding one). Default: every project one folder down under each test folder, except browser tests, which start the site and a browser and run only with --include-browser.</summary>
     public string[]? TestProjects { get; init; }
 
+    /// <summary>The browser tests' run log (Quality.Browser's BrowserRunLog), relative to the root: when set, the report shows each scenario's last time against the one before it and its best.</summary>
+    public string? BrowserRunLog { get; init; }
+
     /// <summary>Folder names to leave out (for example <c>/Migrations/</c>), on top of build output and generated code.</summary>
     public string[] SkipFolders { get; init; } = Array.Empty<string>();
 

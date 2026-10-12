@@ -74,6 +74,7 @@ internal static class Program
             collected.TestsAt = tests.At;
         }
 
+        collected.BrowserRuns = BrowserRuns.Read(root, config);
         collected.Save(root);
         var history = await RecordHistoryAsync(root, collected);
         var html = await HtmlReport.WriteAsync(root, collected, Baseline.Load(root), history, config, options.Flag("--include-tests"));

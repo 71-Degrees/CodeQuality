@@ -11,7 +11,9 @@ using CodeQuality.Common;
 namespace CodeQuality.Quality;
 
 /// <summary>One test project's last run.</summary>
-internal sealed record ProjectTests(string Name, int Total, int Passed, int Failed, int Skipped, double Seconds, List<string> Failures);
+/// <param name="At">When the project last ran (the time its results were written).</param>
+/// <param name="IsBrowser">A real-browser test project: kept apart from the unit and component tests in the report, and out of the coverage (the site runs in its own process).</param>
+internal sealed record ProjectTests(string Name, int Total, int Passed, int Failed, int Skipped, double Seconds, List<string> Failures, string At = "", bool IsBrowser = false);
 
 /// <summary>Line coverage of one part of the source (a project folder): lines the tests ran, of the lines the tests loaded.</summary>
 internal sealed record CoverageGroup(string Name, int Covered, int Lines)
@@ -29,13 +31,17 @@ internal sealed class TestSummary
 
     public List<CoverageGroup> Coverage { get; set; } = new();
 
-    public int Total => Projects.Sum(p => p.Total);
+    /// <summary>Unit and component tests together (the browser tests are counted apart, <see cref="Browser"/>).</summary>
+    public int Total => Projects.Where(p => !p.IsBrowser).Sum(p => p.Total);
 
-    public int Passed => Projects.Sum(p => p.Passed);
+    public int Passed => Projects.Where(p => !p.IsBrowser).Sum(p => p.Passed);
 
-    public int Failed => Projects.Sum(p => p.Failed);
+    public int Failed => Projects.Where(p => !p.IsBrowser).Sum(p => p.Failed);
 
-    public int Skipped => Projects.Sum(p => p.Skipped);
+    public int Skipped => Projects.Where(p => !p.IsBrowser).Sum(p => p.Skipped);
+
+    /// <summary>The real-browser test projects.</summary>
+    public IReadOnlyList<ProjectTests> Browser => Projects.Where(p => p.IsBrowser).ToList();
 
     public int CoveredLines => Coverage.Sum(g => g.Covered);
 
@@ -76,8 +82,16 @@ internal static class TestResults
                 continue;
             }
 
-            summary.Projects.Add(ParseTrx(Path.GetFileName(project), File.ReadAllText(trx)));
-            newest = Max(newest, File.GetLastWriteTime(trx));
+            var name = Path.GetFileName(project);
+            var isBrowser = IsBrowserProject(name);
+            var wrote = File.GetLastWriteTime(trx);
+            summary.Projects.Add(ParseTrx(name, File.ReadAllText(trx)) with { At = wrote.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), IsBrowser = isBrowser });
+            if (isBrowser)
+            {
+                continue;
+            }
+
+            newest = Max(newest, wrote);
             foreach (var cobertura in Directory.EnumerateFiles(project, "coverage.cobertura.xml", SearchOption.AllDirectories))
             {
                 MergeCoverage(lines, File.ReadAllText(cobertura));
@@ -93,6 +107,9 @@ internal static class TestResults
         summary.Coverage = Summarize(lines, root, config);
         return summary;
     }
+
+    /// <summary>A test project that drives a real browser (it has "Browser" in its name): the site runs in its own process, so its coverage says nothing about the code, and it runs on demand rather than on every push.</summary>
+    internal static bool IsBrowserProject(string name) => name.Contains("Browser", StringComparison.OrdinalIgnoreCase);
 
     private static DateTime Max(DateTime? a, DateTime b) => a is null || b > a ? b : a.Value;
 

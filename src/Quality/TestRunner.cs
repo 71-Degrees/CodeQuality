@@ -20,7 +20,7 @@ internal static class TestRunner
             : config.TestFolders.Select(f => Path.Combine(root, f)).Where(Directory.Exists)
                 .SelectMany(Directory.EnumerateDirectories).SelectMany(d => Directory.EnumerateFiles(d, "*.csproj"));
         return found
-            .Where(p => includeBrowser || !Path.GetFileNameWithoutExtension(p).Contains("Browser", StringComparison.OrdinalIgnoreCase))
+            .Where(p => includeBrowser || !TestResults.IsBrowserProject(Path.GetFileNameWithoutExtension(p)))
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
