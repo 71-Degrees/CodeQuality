@@ -132,7 +132,7 @@ internal static class Dashboard
         }
     }
 
-    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns)
+    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns, IReadOnlyList<TargetStatus>? release = null, string? consoleUrl = null)
     {
         var first = history.Snapshots.FirstOrDefault(s => s.Smells is not null)?.Smells;
         var last = history.Snapshots.LastOrDefault(s => s.Smells is not null)?.Smells;
@@ -143,6 +143,8 @@ internal static class Dashboard
             points = Points(history),
             gate = gateRuns.TakeLast(60).ToList(),
             newerRules = Rules.Newer,
+            release,
+            consoleUrl,
             firstRules = first?.ByRule,
             lastRules = last?.ByRule,
         };
@@ -157,8 +159,33 @@ internal static class Dashboard
         var runs = File.Exists(timings) ? GateRuns(File.ReadLines(timings)) : [];
         var path = Path.Combine(Repo.OutputRoot(root), "reports", FileName);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs));
+        var release = await ReleaseStatusAsync(root, config);
+        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs, release, config.Release?.ConsoleUrl));
         return path;
+    }
+
+    // What is running where, asked of the live sites each time the dashboard is written (a site that does not answer shows as unknown, never as an error).
+    private static async Task<List<TargetStatus>?> ReleaseStatusAsync(string root, ToolConfig config)
+    {
+        if (config.Release is not { Targets.Length: > 0 } release)
+        {
+            return null;
+        }
+
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(6) };
+        return await ReleasePanel.BuildAsync(release, url => FetchAsync(http, url), new RepoGit(root));
+    }
+
+    private static async Task<string?> FetchAsync(HttpClient http, string url)
+    {
+        try
+        {
+            return await http.GetStringAsync(url);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return null;   // the panel says the build could not be read
+        }
     }
 
     private const string Template = """
@@ -182,10 +209,13 @@ svg{width:100%;height:auto;display:block}svg text{fill:var(--dim);font:11px "Seg
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.82rem;color:var(--dim);margin-top:4px}.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
 table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{padding:5px 10px;text-align:left;border-bottom:1px solid var(--line)}th{background:var(--chip)}td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}tr:last-child td{border-bottom:0}
 .scroll{overflow-x:auto}
+.btn{display:inline-block;padding:7px 16px;border-radius:8px;background:var(--accent);color:#fff;text-decoration:none;font-weight:600}
+ul{margin:4px 0 4px 18px;padding:0}.mono{font:13px Consolas,monospace}
 </style></head><body><main>
 <h1>/*TITLE*/ - code quality dashboard</h1>
 <div class="dim" id="meta"></div>
 <div class="hero" id="hero"></div>
+<div id="release"></div>
 <div class="charts" id="charts"></div>
 <div class="charts" style="margin-top:14px">
   <div class="panel"><h2>Code smells by rule</h2><div class="scroll"><table id="rules"></table></div></div>
@@ -254,6 +284,17 @@ charts+=chart('Line coverage',lab,[{name:'Share of lines run by the tests (Razor
 charts+=chart('Analyzer findings',lab,[{name:'.NET analyzer findings',values:P.map(p=>p.analyzers),color:'var(--bad)'}],int);
 charts+=chart('Push check: slowest stage',G.map(g=>g.at.slice(5,16).replace('T',' ')),[{name:'Seconds the push waited',values:G.map(g=>g.slowestSeconds),color:'var(--accent)'}],v=>Math.round(v)+' s');
 $('charts').innerHTML=charts;
+
+// Release: what each environment is running, how far behind it is, and a button into the deploy console (which asks before it does anything).
+if(D.release&&D.release.length){
+  const cards=D.release.map(t=>{
+    const behind=t.problem?`<div class="bad">${esc(t.problem)}</div>`
+      :t.commitsAhead===0?`<div class="good">Up to date with ${esc(t.source)}.</div>`
+      :`<div>${t.commitsAhead} commit${t.commitsAhead===1?'':'s'} and ${t.filesChanged} file${t.filesChanged===1?'':'s'} newer than what is running, from ${esc(t.source)}.</div>`;
+    const warn=t.warn&&t.sensitive.length?`<div class="bad"><b>Changes who can do what, or payments</b> (${t.sensitive.length} file${t.sensitive.length===1?'':'s'}):<ul>${t.sensitive.slice(0,12).map(f=>'<li class="mono">'+esc(f)+'</li>').join('')}${t.sensitive.length>12?'<li>and '+(t.sensitive.length-12)+' more</li>':''}</ul></div>`:'';
+    return `<div class="panel"><h2>${esc(t.name)}</h2><div class="dim">Running build ${esc(t.build||'unknown')}</div>${behind}${warn}${D.consoleUrl?`<p><a class="btn" href="${esc(D.consoleUrl)}" target="_blank" rel="noopener">${esc(t.button)}</a></p>`:''}</div>`;}).join('');
+  $('release').innerHTML=`<h2 style="margin-top:18px">Release</h2><div class="charts">${cards}</div><div class="dim" style="margin:6px 0 14px">The buttons open the deploy console (${esc(D.consoleUrl||'not set')}), which asks you to confirm before anything is deployed. Start it with: dotnet run --project tools/Deploy -- console</div>`;
+}
 
 // Where the smells are: now against the first recording, with the rules added later marked.
 const fr=D.firstRules||{}, lr=D.lastRules||{};

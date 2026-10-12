@@ -74,6 +74,9 @@ public sealed class ToolConfig
 
     public CrawlSettings Crawl { get; init; } = new();
 
+    /// <summary>The dashboard's release panel: where builds go, what is running there and a button into the deploy console. Absent: no panel.</summary>
+    public ReleaseSettings? Release { get; init; }
+
     /// <summary>Analyzer rules to leave out of the report, each with the reason, added to the built-in list.</summary>
     public Dictionary<string, string> IgnoredAnalyzerRules { get; init; } = new();
 
