@@ -2,10 +2,12 @@
   <Folder Name="/src/">
     <Project Path="src/Common/Common.csproj" />
     <Project Path="src/Quality/Quality.csproj" />
+    <Project Path="src/Quality.Browser/Quality.Browser.csproj" />
     <Project Path="src/Refactor/Refactor.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Quality.Tests/Quality.Tests.csproj" />
+    <Project Path="tests/Quality.Browser.Tests/Quality.Browser.Tests.csproj" />
     <Project Path="tests/Refactor.Tests/Refactor.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The part of the browser tests every site shares: start the site as its own process on a free port, drive it with Playwright's Chromium, and fail a test on a console error, a page error or a server error. A
+       site's own browser-test project references this and adds only its scenarios and how its site starts (see README.md, "Browser tests"). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>CodeQuality.Browser</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.63.0" />
+    <!-- For the fact attribute that skips a browser test when Chromium is not installed, and the async-lifetime interface fixtures implement. -->
+    <PackageReference Include="xunit.extensibility.core" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Quality.Browser.Tests" />
+  </ItemGroup>
+
+</Project>

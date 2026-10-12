@@ -84,6 +84,20 @@ Every setting is optional. With no file the tools check `src` and `tools` of the
 - **Crawl:** Playwright, phone-sized by default, read-only; broken links, console and network errors, SEO basics, sideways scrolling, images with no alt, axe-core accessibility.
   One-time: `pwsh src/Quality/bin/Debug/net10.0/playwright.ps1 install chromium`.
 
+## Browser tests (`src/Quality.Browser`)
+
+The part of a site's browser tests that every site shares, so a site writes only its scenarios. It starts the site as its own process on a free port (`SiteHost`), launches Playwright's Chromium, gives each test
+its own browser context with a phone-sized viewport, and listens to the page (`PageProbe`): a console error, an uncaught page error or a 5xx response fails the test even when its visible assertions passed.
+`BlazorPages.GotoLiveAsync` waits until a Blazor Server page is actually live (runtime started, no error or reconnect bar), and `ShowsBlazorErrorAsync` reports a crashed circuit.
+
+A site adds an xunit project that references `src/Quality.Browser` and subclasses `BrowserSiteFixture`, saying only how its site starts (`SiteHostOptions`: project, build configuration, environment such as storage folders
+and switches that keep tests off outside services) and where the run log goes. Mark tests `[BrowserFact]`: they are skipped, with the reason, where Chromium is not installed (install it once with
+`pwsh <a built Playwright project>/bin/Debug/net10.0/playwright.ps1 install chromium`) or when `QUALITY_BROWSER=0`. `QUALITY_BROWSER_HEADED=1` shows the browser, slowed down, so a person can watch.
+
+Data is the site's own and is meant to persist: point the site at a storage folder that is kept between runs and never cleaned up, and write scenarios that tolerate what an earlier run left (unique names,
+no assumption of an empty store). `BrowserRunLog` appends one JSON line per scenario (when, name, milliseconds, problems) and never rewrites the file, so slippage shows over many runs: a start that doubled, a
+scenario that got slow.
+
 ## Working on the tools
 
 `dotnet build CodeQuality.slnx` and `dotnet test CodeQuality.slnx`. The tools check themselves: `dotnet run --project src/Quality`. See `CLAUDE.md` for the engineering standard.
