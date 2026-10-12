@@ -67,24 +67,26 @@ $('hero').innerHTML=
   card(P.length,'','Pages','routable pages in the site')+
   card(n(p=>status(p)!=='none'),n(p=>status(p)==='none')?'':'good','Mentioned by a test',`${n(p=>status(p)==='none')} not covered`)+
   card(n(p=>status(p)==='browser'),'','Have a browser test','a real browser drives them')+
+  card(n(p=>p.smoke==='passed'),n(p=>p.smoke==='failed')?'bad':'good','Open cleanly in a real browser',`signed in as the QA admin; ${n(p=>p.smoke==='failed')} fail, ${n(p=>p.smoke==='skipped')} need a record the run cannot make, ${n(p=>p.smoke==='not run')} not run`)+
   card(n(p=>p.crawled),'','Visited by the site crawler','public pages reachable by links')+
   card(n(p=>p.clicks==null),n(p=>p.clicks==null)?'warn':'good','No link leads to them','reached by redirect, code or QR');
 const areas=[...new Set(P.map(p=>p.area))].sort();
 $('area').innerHTML='<option value="">All areas</option>'+areas.map(a=>`<option>${esc(a)}</option>`).join('');
+const smokeCell=p=>p.smoke==='passed'?`<span class="good">opens</span> <span class="dim">${(p.smokeMilliseconds/1000).toFixed(1)} s</span>`:p.smoke==='failed'?`<span class="bad">fails</span><div class="dim">${esc((p.smokeProblems||[]).join('; ')).slice(0,160)}</div>`:p.smoke==='skipped'?`<span class="warn">needs a record</span>`:'<span class="dim">not run</span>';
 let sortKey='route',sortDir=1;
 const keyOf={route:p=>p.route,area:p=>p.area,clicks:p=>p.clicks==null?99:p.clicks,tests:p=>p.tests.length,crawled:p=>p.crawled?1:0};
 function render(){
   const q=$('q').value.toLowerCase(),a=$('area').value,s=$('status').value,ac=$('access').value;
   const rows=P.filter(p=>(!q||p.route.toLowerCase().includes(q)||p.file.toLowerCase().includes(q))&&(!a||p.area===a)&&(!s||status(p)===s)&&(!ac||access(p)===ac))
     .sort((x,y)=>{const kx=keyOf[sortKey](x),ky=keyOf[sortKey](y);return (kx>ky?1:kx<ky?-1:0)*sortDir;});
-  const head=[['route','Page'],['area','Area'],['clicks','Clicks from home'],['','Access'],['tests','Tests'],['crawled','Crawled']];
+  const head=[['route','Page'],['area','Area'],['clicks','Clicks from home'],['','Access'],['tests','Tests'],['crawled','Crawled'],['','Opens (browser)']];
   $('t').innerHTML='<tr>'+head.map(([k,l])=>`<th data-k="${k}" class="${k==='clicks'||k==='tests'?'num':''}">${l}</th>`).join('')+'</tr>'+rows.map(p=>{
     const layers={};p.tests.forEach(t=>layers[t.layer]=(layers[t.layer]||0)+1);
     const tags=Object.entries(layers).map(([l,c])=>`<span class="tag ${l}">${c} ${l}</span>`).join('')||'<span class="bad">not covered</span>';
     const list=p.tests.length?`<details><summary>${tags}</summary><ul>${p.tests.slice(0,25).map(t=>`<li class="mono">${esc(t.file.split('/').pop())} :: ${esc(t.method)}</li>`).join('')}${p.tests.length>25?`<li>and ${p.tests.length-25} more</li>`:''}</ul></details>`:tags;
     const clicks=p.clicks==null?'<span class="warn">no link</span>':p.clicks===0?'0 (home)':`${p.clicks}${p.via&&p.via!=='/'?` <span class="dim">via ${esc(p.via)}</span>`:''}`;
     const acc={public:'Public',signed:'Signed in',param:'Needs an id'}[access(p)];
-    return `<tr><td><span class="mono">${esc(p.route)}</span><div class="dim mono">${esc(p.file.replace(/^src\//,''))}</div></td><td>${esc(p.area)}</td><td class="num">${clicks}</td><td>${acc}</td><td class="num">${list}</td><td>${p.crawled?'<span class="good">yes</span>':'<span class="dim">no</span>'}</td></tr>`;}).join('');
+    return `<tr><td><span class="mono">${esc(p.route)}</span><div class="dim mono">${esc(p.file.replace(/^src\//,''))}</div></td><td>${esc(p.area)}</td><td class="num">${clicks}</td><td>${acc}</td><td class="num">${list}</td><td>${p.crawled?'<span class="good">yes</span>':'<span class="dim">no</span>'}</td><td>${smokeCell(p)}</td></tr>`;}).join('');
   $('t').querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(!keyOf[k])return;sortDir=sortKey===k?-sortDir:1;sortKey=k;render();});
 }
 ['q','area','status','access'].forEach(id=>$(id).addEventListener('input',render));
@@ -103,6 +105,7 @@ if(F&&F.length){
     card(nf(f=>f.status==='none'),nf(f=>f.status==='none')?'bad':'good','Not covered by any test','no test class named for them exists')+
     card(nf(f=>f.status==='browser'),'','Have a browser test','a real browser drives part of them')+
     card(nf(f=>f.walked),'','Walked in a real browser','from start to finish by a Playwright test')+
+    card(nf(f=>f.smoke==='opens cleanly'),nf(f=>f.smoke==='fails')?'bad':'good','Pages open cleanly',`${nf(f=>f.smoke==='partly'||f.smoke==='needs a record')} only partly (a page needs a record), ${nf(f=>f.smoke==='fails')} fail`)+
     card((stepsTotal/Math.max(1,people.length)).toFixed(1),'','Clicks on average',`across the ${people.length} functions a person does`);
   const warn=[];
   if(D.unassignedPages&&D.unassignedPages.length) warn.push(`<div class="warn"><b>${D.unassignedPages.length} page(s) belong to no function:</b> ${D.unassignedPages.map(r=>'<span class="mono">'+esc(r)+'</span>').join(', ')}</div>`);
@@ -119,14 +122,14 @@ if(F&&F.length){
   function renderF(){
     const q=$('fq').value.toLowerCase(),a=$('farea').value,w=$('fwho').value,s=$('fstatus').value;
     const rows=F.filter(f=>(!q||(f.name+' '+f.id+' '+f.routes.join(' ')).toLowerCase().includes(q))&&(!a||f.area===a)&&(!w||f.who===w)&&(!s||f.status===s));
-    $('ft').innerHTML='<tr><th>Function</th><th class="num">Clicks</th><th>Pages</th><th class="num">Tests</th><th>Crawl</th></tr>'+rows.map(f=>{
+    $('ft').innerHTML='<tr><th>Function</th><th class="num">Clicks</th><th>Pages</th><th class="num">Tests</th><th>Automatic checks</th></tr>'+rows.map(f=>{
       const steps=f.steps.length?`<details><summary>${f.clicks} click${f.clicks===1?'':'s'}${f.entries?` + ${f.entries} other`:''}</summary><ol>${f.steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></details>`:'<span class="dim">automatic</span>';
       const layers={};f.tests.forEach(t=>layers[t.layer]=(layers[t.layer]||0)+t.count);
       const tags=Object.entries(layers).map(([l,c])=>`<span class="tag ${l}">${c} ${l}</span>`).join('')||'<span class="bad">not covered</span>';
       const list=`<details><summary>${tags}${f.missing.length?` <span class="bad">${f.missing.length} missing</span>`:''}</summary><ul>${f.tests.map(t=>`<li class="mono">${esc(t.name)} <span class="dim">(${t.count} ${esc(t.layer)}, ${esc(t.project.replace('TriviaNight.',''))})</span></li>`).join('')}${f.missing.map(m=>`<li class="mono bad">${esc(m)} - no such test</li>`).join('')}</ul></details>`;
       const pagesCell=f.routes.length?f.routes.map(r=>`<div class="mono">${esc(r)}</div>`).join(''):'<span class="dim">no page</span>';
       const depth=f.navigationDepth==null?'':` <span class="dim">(page is ${f.navigationDepth} click${f.navigationDepth===1?'':'s'} from home)</span>`;
-      return `<tr><td><b>${esc(f.name)}</b><div class="dim">${esc(f.area)} · ${esc(f.who)}${f.walked?' · <span class="good">walked in a browser</span>':''}</div></td><td class="num">${steps}${depth}</td><td>${pagesCell}</td><td class="num">${f.testCount?list:tags}${f.testCount?'':''}</td><td><span class="${crawlCls(f.crawl)}">${esc(f.crawl)}</span></td></tr>`;}).join('');
+      return `<tr><td><b>${esc(f.name)}</b><div class="dim">${esc(f.area)} · ${esc(f.who)}${f.walked?' · <span class="good">walked in a browser</span>':''}</div></td><td class="num">${steps}${depth}</td><td>${pagesCell}</td><td class="num">${f.testCount?list:tags}${f.testCount?'':''}</td><td><div><span class="${crawlCls(f.crawl)}">crawl: ${esc(f.crawl)}</span></div><div><span class="${f.smoke==='opens cleanly'?'good':f.smoke==='fails'?'bad':'warn'}">browser: ${esc(f.smoke)}</span></div></td></tr>`;}).join('');
   }
   ['fq','farea','fwho','fstatus'].forEach(id=>$(id).addEventListener('input',renderF));
   renderF();

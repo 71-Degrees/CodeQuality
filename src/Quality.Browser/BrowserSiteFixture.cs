@@ -38,13 +38,19 @@ public abstract class BrowserSiteFixture : IAsyncLifetime
         (_playwright, _browser) = await Chromium.LaunchAsync().ConfigureAwait(false);
     }
 
-    /// <summary>A fresh page in its own browser context (cookies, storage and the signed-in state are not shared with any other test), with a probe listening.</summary>
-    public async Task<BrowserPage> NewPageAsync(int width = 390, int height = 844)
+    /// <summary>
+    /// A fresh page in its own browser context (cookies and storage are not shared with any other test unless <paramref name="storageStatePath"/> says so: a file saved by <see cref="SaveStorageStateAsync"/>, which lets many tests
+    /// start already signed in after one real sign-in), with a probe listening.
+    /// </summary>
+    public async Task<BrowserPage> NewPageAsync(int width = 390, int height = 844, string? storageStatePath = null)
     {
-        var context = await _browser!.NewContextAsync(new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = width, Height = height }, BaseURL = BaseUrl }).ConfigureAwait(false);
+        var context = await _browser!.NewContextAsync(new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = width, Height = height }, BaseURL = BaseUrl, StorageStatePath = storageStatePath }).ConfigureAwait(false);
         var page = await context.NewPageAsync().ConfigureAwait(false);
         return new BrowserPage(context, page, new PageProbe(page), Log);
     }
+
+    /// <summary>Saves the page's cookies and storage (its signed-in state) to a file other pages can start from.</summary>
+    public static Task SaveStorageStateAsync(BrowserPage page, string path) => page.Context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = path });
 
     public async Task DisposeAsync()
     {

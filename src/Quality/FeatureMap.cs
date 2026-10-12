@@ -14,7 +14,7 @@ namespace CodeQuality.Quality;
 internal sealed record TestRef(string Project, string File, string Method, string Layer);
 
 /// <summary>One page of the site as the feature map lists it.</summary>
-internal sealed record PageRow(string Route, string File, string Area, int? Clicks, string? Via, bool Parameters, bool SignedIn, bool Crawled, IReadOnlyList<TestRef> Tests);
+internal sealed record PageRow(string Route, string File, string Area, int? Clicks, string? Via, bool Parameters, bool SignedIn, bool Crawled, IReadOnlyList<TestRef> Tests, string? Smoke = null, long SmokeMilliseconds = 0, IReadOnlyList<string>? SmokeProblems = null);
 
 /// <summary>
 /// The first layer of the feature map, worked out from the code alone: every routable page, how many clicks it takes to reach from the home page by following the links in the markup (the page's own, its layout's and
@@ -48,10 +48,14 @@ internal static partial class FeatureMap
         var clicks = Depths(pages, razor);
         var tests = ReadTests(root, config);
         var skip = string.IsNullOrWhiteSpace(config.Crawl.SkipPattern) ? null : new Regex(config.Crawl.SkipPattern, RegexOptions.IgnoreCase);
-        var rows = pages.Select(p => RowFor(p, clicks, tests, skip, config)).OrderBy(r => r.Area, StringComparer.Ordinal).ThenBy(r => r.Route, StringComparer.Ordinal).ToList();
+        var smoke = PageSmoke.Read(root, config);
+        var rows = pages.Select(p => WithSmoke(RowFor(p, clicks, tests, skip, config), smoke)).OrderBy(r => r.Area, StringComparer.Ordinal).ThenBy(r => r.Route, StringComparer.Ordinal).ToList();
         var registry = FeatureRegistryFile.Load(root, config.Features);
         return (rows, registry is null ? null : FeatureFunctions.Resolve(registry, rows, FeatureFunctions.IndexTests(tests)));
     }
+
+    private static PageRow WithSmoke(PageRow row, IReadOnlyDictionary<string, PageSmokeOutcome> smoke) =>
+        smoke.TryGetValue(row.Route, out var found) ? row with { Smoke = found.Outcome, SmokeMilliseconds = found.Milliseconds, SmokeProblems = found.Problems } : row with { Smoke = "not run" };
 
     private static PageRow RowFor(PageInfo page, Dictionary<string, (int Clicks, string Via)> clicks, IReadOnlyList<(string Project, string File, string Text)> tests, Regex? skip, ToolConfig config)
     {

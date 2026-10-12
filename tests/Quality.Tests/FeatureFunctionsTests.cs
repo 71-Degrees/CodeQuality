@@ -172,4 +172,32 @@ public class FeatureFunctionsTests
         Assert.Null(FeatureRegistryFile.Load(Path.Combine(folder, "nowhere"), null));
         Directory.Delete(folder, recursive: true);
     }
+
+    private static PageRow Smoked(string route, string? smoke) => Page(route) with { Smoke = smoke };
+
+    [Fact]
+    public void AFunctionOpensCleanlyOnlyWhenEveryPageOfItDid()
+    {
+        Assert.Equal("opens cleanly", FeatureFunctions.SmokeOf([Smoked("/a", "passed"), Smoked("/b", "passed")]));
+        Assert.Equal("partly", FeatureFunctions.SmokeOf([Smoked("/a", "passed"), Smoked("/b", "skipped")]));
+        Assert.Equal("needs a record", FeatureFunctions.SmokeOf([Smoked("/a", "skipped")]));
+        Assert.Equal("not run", FeatureFunctions.SmokeOf([Smoked("/a", "not run")]));
+        Assert.Equal("no page", FeatureFunctions.SmokeOf([]));
+    }
+
+    [Fact]
+    public void OneFailingPageMakesTheFunctionFail() =>
+        Assert.Equal("fails", FeatureFunctions.SmokeOf([Smoked("/a", "passed"), Smoked("/b", "failed")]));
+
+    [Fact]
+    public void TheSmokeFileIsReadPerRoute_IgnoringCase()
+    {
+        var found = PageSmoke.Parse("""{ "at": "x", "pages": [ { "route": "/Play", "outcome": "passed", "milliseconds": 900, "problems": [] }, { "route": "/team", "outcome": "failed", "milliseconds": 5, "problems": ["HTTP 500"] } ] }""");
+
+        Assert.Equal("passed", found["/play"].Outcome);
+        Assert.Equal(["HTTP 500"], found["/team"].Problems);
+    }
+
+    [Fact]
+    public void ABrokenSmokeFileMeansNothingWasRun() => Assert.Empty(PageSmoke.Parse("{ not json"));
 }

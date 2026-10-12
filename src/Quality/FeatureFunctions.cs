@@ -15,7 +15,7 @@ internal sealed record TestCover(string Name, string Project, string Layer, int 
 /// <summary>One function of the site, checked against the code: how many clicks, which tests cover it, whether they exist, whether the crawler could reach it.</summary>
 internal sealed record FunctionRow(
     string Id, string Name, string Area, string Who, IReadOnlyList<string> Steps, int Clicks, int Entries, IReadOnlyList<string> Routes, bool Walked,
-    IReadOnlyList<TestCover> Tests, IReadOnlyList<string> Missing, int TestCount, string Status, string Crawl, int? NavigationDepth, string? Notes);
+    IReadOnlyList<TestCover> Tests, IReadOnlyList<string> Missing, int TestCount, string Status, string Crawl, string Smoke, int? NavigationDepth, string? Notes);
 
 /// <summary>What the check found: the functions, the pages that belong to none, and the routes a function names that are not pages.</summary>
 internal sealed record UnmappedTests(string Class, string Project, int Count);
@@ -87,7 +87,7 @@ internal static partial class FeatureFunctions
         var mine = f.Routes.Select(r => pages.FirstOrDefault(p => string.Equals(p.Route, r, StringComparison.OrdinalIgnoreCase))).Where(p => p is not null).Select(p => p!).ToList();
         var clicks = f.Steps.Count(s => s.StartsWith("Click", StringComparison.OrdinalIgnoreCase));
         var depths = mine.Where(p => p.Clicks is not null).Select(p => p.Clicks!.Value).ToList();
-        return new FunctionRow(f.Id, f.Name, f.Area, f.Who, f.Steps, clicks, f.Steps.Length - clicks, f.Routes, f.Walked, covers, missing, covers.Sum(c => c.Count), StatusOf(covers), CrawlOf(mine), depths.Count > 0 ? depths.Min() : null, f.Notes);
+        return new FunctionRow(f.Id, f.Name, f.Area, f.Who, f.Steps, clicks, f.Steps.Length - clicks, f.Routes, f.Walked, covers, missing, covers.Sum(c => c.Count), StatusOf(covers), CrawlOf(mine), SmokeOf(mine), depths.Count > 0 ? depths.Min() : null, f.Notes);
     }
 
     private static List<TestCover> Find(string reference, IReadOnlyList<TestClassInfo> tests)
@@ -104,6 +104,27 @@ internal static partial class FeatureFunctions
 
     internal static string StatusOf(IReadOnlyList<TestCover> covers) =>
         covers.Count == 0 ? "none" : covers.Any(c => c.Layer == "browser") ? "browser" : "weak";
+
+    /// <summary>Whether a real browser opened this function's pages cleanly: all of them, some (the rest need a record the run cannot make), none, or the test has not run.</summary>
+    internal static string SmokeOf(IReadOnlyList<PageRow> pages)
+    {
+        if (pages.Count == 0)
+        {
+            return "no page";
+        }
+
+        if (pages.Any(p => p.Smoke == "failed"))
+        {
+            return "fails";
+        }
+
+        if (pages.All(p => p.Smoke == "passed"))
+        {
+            return "opens cleanly";
+        }
+
+        return pages.Any(p => p.Smoke == "passed") ? "partly" : pages.All(p => p.Smoke == "skipped") ? "needs a record" : "not run";
+    }
 
     internal static string CrawlOf(IReadOnlyList<PageRow> pages)
     {
