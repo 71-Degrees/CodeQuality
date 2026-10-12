@@ -25,9 +25,9 @@ public sealed class GeneratedPagesBrowserTests
     private static FunctionsResult Functions() => new(
         [
             new FunctionRow("join", "Join a game", "Playing", "Anyone", ["Click Play", "Type a code"], 1, 1, ["/"], true, [new TestCover("JoinTests", "Browser.Tests", "browser", 3)], [], 3, "browser", "crawled", "opens cleanly", 0, null,
-                new FunctionDetails(["src/Home.razor"], [new Dependency("IQuizRepository", "Cached"), new Dependency("IThingStore", null)], 7, ["accounts.md"], ["src/Billing/Stripe.razor"])),
+                new FunctionDetails(["src/Home.razor"], [new Dependency("IQuizRepository", "Cached"), new Dependency("IThingStore", null)], 7, ["accounts.md"], ["src/Billing/Stripe.razor"], ["Click Ghost button"])),
             new FunctionRow("api", "Scripts", "Behind", "System", [], 0, 0, [], false, [], ["GoneTests"], 0, "none", "not a page", "no page", null, null,
-                new FunctionDetails([], [], 0, ["quizzes.md"], [])),
+                new FunctionDetails([], [], 0, ["quizzes.md"], [], ["Click Phantom"])),
         ],
         ["/orphan"],
         [("join", "/gone")],
@@ -72,6 +72,8 @@ public sealed class GeneratedPagesBrowserTests
         Assert.Contains("/quizzes/edit", text, StringComparison.Ordinal);
         Assert.Contains("HTTP 500", text, StringComparison.Ordinal);
         Assert.Contains("/orphan", text, StringComparison.Ordinal);
+        Assert.Contains("Click Ghost button", text, StringComparison.Ordinal);
+        Assert.Contains("Click Phantom", text, StringComparison.Ordinal);
         Assert.Contains("GoneTests", text, StringComparison.Ordinal);
     }
 

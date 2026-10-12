@@ -66,8 +66,9 @@ internal static partial class FeatureMap
         var docs = FeatureDetails.ReadDocs(root, config.Features);
         var changes = await FeatureDetails.ReadChangesAsync(root, config.Features?.ChurnDays ?? 90);
         var sensitive = config.Release?.SensitivePaths ?? [];
+        var corpus = string.Join(Environment.NewLine, razor.Values);
         var byId = registry.Functions.ToDictionary(f => f.Id, f => f);
-        var rows = resolved.Functions.Select(r => r with { Details = FeatureDetails.For(byId[r.Id], pages, razor, byStem, classes, changes, docs, sensitive) }).ToList();
+        var rows = resolved.Functions.Select(r => r with { Details = FeatureDetails.For(byId[r.Id], pages, razor, byStem, classes, changes, docs, sensitive, corpus) }).ToList();
         return resolved with { Functions = rows };
     }
 

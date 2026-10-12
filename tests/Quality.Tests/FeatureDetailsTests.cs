@@ -110,4 +110,35 @@ public class FeatureDetailsTests
 
         Assert.Equal(["src/Shared/Lobby.razor"], details.Sensitive);
     }
+
+    [Theory]
+    [InlineData("Click Play", "Play")]
+    [InlineData("Click Next question now or See my score now", "Next question now|See my score now")]
+    [InlineData("Click an answer for each question", "")]
+    [InlineData("Click the flag beside the question", "")]
+    [InlineData("Type the game code", "")]
+    [InlineData("Wait for the break", "")]
+    public void AClickStepNamesTheControlsItNames_AndAGeneralOneNamesNone(string step, string expected) =>
+        Assert.Equal(expected, string.Join('|', FeatureDetails.ControlsNamedBy(step)));
+
+    [Fact]
+    public void AStepIsFoundWhenItsControlTextIsOnAPage_IgnoringCaseAndEmoji()
+    {
+        const string Pages = "<button>🎤 Host this event</button> <a href=\"x\">Next question now</a>";
+
+        var unfound = FeatureDetails.UnfoundSteps(["Click host this event", "Click Next question now or See my score now", "Click Add audio", "Type a name", "Click an answer"], Pages);
+
+        Assert.Equal(["Click Next question now or See my score now", "Click Add audio"], unfound);
+    }
+
+    [Fact]
+    public void AFunctionReportsTheStepsNoPageMatches()
+    {
+        var function = new FeatureFunction { Id = "x", Steps = ["Click Host this event", "Click Ghost button"] };
+        var razor = new Dictionary<string, string> { ["src/A.razor"] = "<button>Host this event</button>" };
+
+        var details = FeatureDetails.For(function, [], razor, new Dictionary<string, string>(), new Dictionary<string, string>(), new Dictionary<string, HashSet<string>>(), new Dictionary<string, string>(), []);
+
+        Assert.Equal(["Click Ghost button"], details.UnfoundSteps);
+    }
 }

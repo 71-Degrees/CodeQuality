@@ -16,7 +16,7 @@ internal sealed record Dependency(string Name, string? CacheClass);
 /// What is behind a function, worked out from the code: the services and stores its pages ask for and how each is cached, how often its source changed lately (a function that keeps changing and is lightly tested is the
 /// risky one), which docs mention its pages, and whether any of its source sits on a path that decides who can do what or takes payment.
 /// </summary>
-internal sealed record FunctionDetails(IReadOnlyList<string> Files, IReadOnlyList<Dependency> Dependencies, int Changes, IReadOnlyList<string> Docs, IReadOnlyList<string> Sensitive);
+internal sealed record FunctionDetails(IReadOnlyList<string> Files, IReadOnlyList<Dependency> Dependencies, int Changes, IReadOnlyList<string> Docs, IReadOnlyList<string> Sensitive, IReadOnlyList<string> UnfoundSteps);
 
 internal static partial class FeatureDetails
 {
@@ -133,9 +133,36 @@ internal static partial class FeatureDetails
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     }
 
+    private static readonly string[] Generic = ["a ", "an ", "the ", "any ", "my ", "one ", "each ", "all ", "another "];
+
+    /// <summary>What a "Click ..." step names: the text of a button or link (alternatives separated by " or "). A step that describes a click in general ("Click an answer", "Click the flag beside it") names no control and is left alone.</summary>
+    internal static IEnumerable<string> ControlsNamedBy(string step)
+    {
+        const string Prefix = "Click ";
+        if (!step.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            yield break;
+        }
+
+        var rest = step[Prefix.Length..].Trim();
+        if (Generic.Any(g => rest.StartsWith(g, StringComparison.OrdinalIgnoreCase)))
+        {
+            yield break;
+        }
+
+        foreach (var alternative in rest.Split(" or ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            yield return alternative;
+        }
+    }
+
+    /// <summary>The "Click" steps that name a control whose text appears nowhere in the site's pages: a step the list claims and no person can take.</summary>
+    internal static List<string> UnfoundSteps(IEnumerable<string> steps, string corpus) =>
+        steps.Where(step => ControlsNamedBy(step).Any(name => !corpus.Contains(name, StringComparison.OrdinalIgnoreCase))).ToList();
+
     public static FunctionDetails For(
         FeatureFunction function, IReadOnlyList<FeatureMap.PageInfo> pages, IReadOnlyDictionary<string, string> razor, IReadOnlyDictionary<string, string> byStem,
-        IReadOnlyDictionary<string, string> classes, IReadOnlyDictionary<string, HashSet<string>> changes, IReadOnlyDictionary<string, string> docs, IEnumerable<string> sensitive)
+        IReadOnlyDictionary<string, string> classes, IReadOnlyDictionary<string, HashSet<string>> changes, IReadOnlyDictionary<string, string> docs, IEnumerable<string> sensitive, string? corpus = null)
     {
         var files = function.Routes
             .SelectMany(r => pages.Where(p => string.Equals(p.Route, r, StringComparison.OrdinalIgnoreCase)))
@@ -144,6 +171,6 @@ internal static partial class FeatureDetails
             .ToList();
         var commits = files.SelectMany(f => changes.TryGetValue(f, out var c) ? c : []).Distinct(StringComparer.Ordinal).Count();
         var explaining = DocsMentioning(function.Routes, docs).Union(function.Docs.Where(docs.ContainsKey)).OrderBy(d => d, StringComparer.Ordinal).ToList();
-        return new FunctionDetails(files, DependenciesOf(files, razor, classes), commits, explaining, ReleasePanel.Sensitive(files, sensitive));
+        return new FunctionDetails(files, DependenciesOf(files, razor, classes), commits, explaining, ReleasePanel.Sensitive(files, sensitive), UnfoundSteps(function.Steps, corpus ?? string.Join(Environment.NewLine, razor.Values)));
     }
 }

@@ -99,6 +99,8 @@ if(F&&F.length){
   const fstatus=f=>f.status;
   const nf=g=>F.filter(g).length;
   const risky=f=>f.details&&f.details.changes>=5&&f.status!=='browser';
+  const unfound=f=>f.details&&f.details.unfoundSteps&&f.details.unfoundSteps.length>0;
+  const unfoundHtml=d=>d.unfoundSteps&&d.unfoundSteps.length?`<div class="bad"><b>${d.unfoundSteps.length} step${d.unfoundSteps.length===1?'':'s'} name a control found on no page:</b> ${d.unfoundSteps.map(esc).join('; ')}</div>`:'';
   const people=F.filter(f=>f.who!=='System');
   const stepsTotal=people.reduce((a,f)=>a+f.clicks,0);
   $('fn-hero').innerHTML=
@@ -107,6 +109,7 @@ if(F&&F.length){
     card(nf(f=>f.status==='browser'),'','Have a browser test','a real browser drives part of them')+
     card(nf(f=>f.walked),'','Walked in a real browser','from start to finish by a Playwright test')+
     card(nf(f=>f.smoke==='opens cleanly'),nf(f=>f.smoke==='fails')?'bad':'good','Pages open cleanly',`${nf(f=>f.smoke==='partly'||f.smoke==='needs a record')} only partly (a page needs a record), ${nf(f=>f.smoke==='fails')} fail`)+
+    card(nf(unfound),nf(unfound)?'bad':'good','Functions with a step no page matches','a "Click ..." step whose button or link text is on no page of the site')+
     card(nf(risky),nf(risky)?'warn':'good','Changing often, no browser test','5 or more commits in 90 days, not driven by a real browser')+
     card(nf(f=>f.details&&f.details.sensitive.length),'','Touch roles or payments','their source sits on a path that decides who can do what, or takes money')+
     card((stepsTotal/Math.max(1,people.length)).toFixed(1),'','Clicks on average',`across the ${people.length} functions a person does`);
@@ -122,13 +125,13 @@ if(F&&F.length){
   $('farea').innerHTML='<option value="">All areas</option>'+fa.map(a=>`<option>${esc(a)}</option>`).join('');
   $('fwho').innerHTML='<option value="">Anyone or any role</option>'+fw.map(a=>`<option>${esc(a)}</option>`).join('');
   const behind=f=>{
-    const d=f.details;if(!d||!d.files.length) return '<span class="dim">no page of its own</span>'+(d&&d.docs.length?`<div class="dim">docs: ${d.docs.map(esc).join(', ')}</div>`:'');
+    const d=f.details;if(!d||!d.files.length) return '<span class="dim">no page of its own</span>'+(d&&d.docs.length?`<div class="dim">docs: ${d.docs.map(esc).join(', ')}</div>`:'')+(d?unfoundHtml(d):'');
     const cache=c=>c==='Cached'||c==='HttpCached'?'good':c==='Uncached'?'warn':'dim';
     const deps=d.dependencies.length?`<details><summary>${d.dependencies.length} service${d.dependencies.length===1?'':'s'} and store${d.dependencies.length===1?'':'s'}</summary><ul>${d.dependencies.map(x=>`<li class="mono">${esc(x.name)} <span class="${cache(x.cacheClass)}">${esc(x.cacheClass||(/(Repository|Store|Client)$/.test(x.name)?'not classified':''))}</span></li>`).join('')}</ul></details>`:'<span class="dim">asks for nothing itself</span>';
     const churn=`<div class="${risky(f)?'warn':'dim'}">${d.changes} commit${d.changes===1?'':'s'} touched it in 90 days${risky(f)?' - changing often, no browser test':''}</div>`;
     const docs=d.docs.length?`<div class="dim">docs: ${d.docs.map(esc).join(', ')}</div>`:'';
     const sens=d.sensitive.length?`<div class="bad"><b>touches roles or payments</b> (${d.sensitive.length} file${d.sensitive.length===1?'':'s'})</div>`:'';
-    return deps+churn+docs+sens;
+    return deps+churn+docs+sens+unfoundHtml(d);
   };
   const crawlCls=c=>c==='crawled'?'good':c==='not a page'?'dim':'warn';
   function renderF(){
