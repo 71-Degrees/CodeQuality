@@ -49,8 +49,16 @@ internal sealed record CheckCounts(int Total, double Pressure, Dictionary<string
     }
 }
 
+/// <summary>The test numbers at one moment: how many tests, how many failed, and the line coverage (null when it was not collected).</summary>
+internal sealed record TestCounts(int Total, int Failed, double? Coverage)
+{
+    public bool SameAs(TestCounts? other) => other is not null && Total == other.Total && Failed == other.Failed && Math.Abs((Coverage ?? -1) - (other.Coverage ?? -1)) < 0.0005;
+
+    public static TestCounts? From(TestSummary? tests) => tests is null ? null : new TestCounts(tests.Total, tests.Failed, tests.CoverageRate is { } rate ? Math.Round(rate, 4) : null);
+}
+
 /// <summary>One point on the quality timeline. A check that was not measured at that time is null (the analyzers did not exist yet, for example).</summary>
-internal sealed record Snapshot(string At, string Commit, string Note, CheckCounts? Smells, CheckCounts? Analyzers);
+internal sealed record Snapshot(string At, string Commit, string Note, CheckCounts? Smells, CheckCounts? Analyzers, TestCounts? Tests = null);
 
 /// <summary>
 /// The quality timeline, <c>quality/history.json</c> (committed): a snapshot each time a run's numbers differ from the last one, so the report can show where quality started, where it was last time and where it is now.
@@ -72,17 +80,19 @@ internal sealed class History
         var last = Snapshots.LastOrDefault();
         var smells = collected.RanThisRun.Contains("smells") ? CheckCounts.From(collected.Smells) : last?.Smells;
         var analyzers = collected.RanThisRun.Contains("analyzers") ? CheckCounts.From(collected.Analyzers) : last?.Analyzers;
-        if (smells is null && analyzers is null)
+        // The test numbers are whatever the test projects last wrote (see TestResults), so a snapshot also carries the tests as they were when the code smells were counted.
+        var tests = TestCounts.From(collected.Tests) ?? last?.Tests;
+        if (smells is null && analyzers is null && tests is null)
         {
             return false;
         }
 
-        if (last is not null && SameNumbers(last.Smells, smells) && SameNumbers(last.Analyzers, analyzers))
+        if (last is not null && SameNumbers(last.Smells, smells) && SameNumbers(last.Analyzers, analyzers) && (last.Tests is null ? tests is null : last.Tests.SameAs(tests)))
         {
             return false;
         }
 
-        Snapshots.Add(new Snapshot(now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), commit, string.Empty, smells, analyzers));
+        Snapshots.Add(new Snapshot(now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture), commit, string.Empty, smells, analyzers, tests));
         return true;
     }
 

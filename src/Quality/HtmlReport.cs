@@ -28,6 +28,9 @@ internal sealed class Collected
 
     public string? Scripts { get; set; }
 
+    /// <summary>What the test projects last did (counts, failures, line coverage), read from reports/test-results.</summary>
+    public TestSummary? Tests { get; set; }
+
     public string? SmellsAt { get; set; }
 
     public string? AnalyzersAt { get; set; }
@@ -35,6 +38,8 @@ internal sealed class Collected
     public string? CrawlAt { get; set; }
 
     public string? ScriptsAt { get; set; }
+
+    public string? TestsAt { get; set; }
 
     /// <summary>Which checks ran in this run (not saved): the timeline records numbers only for those.</summary>
     [JsonIgnore]
@@ -78,7 +83,18 @@ internal static class HtmlReport
                 issues = collected.Crawl.Issues.Select(i => new { severity = i.Severity.ToString(), page = i.Page, text = i.Text }).ToList(),
             },
             scripts = collected.Scripts,
-            ranAt = new { smells = collected.SmellsAt, analyzers = collected.AnalyzersAt, crawl = collected.CrawlAt, scripts = collected.ScriptsAt },
+            tests = collected.Tests is null ? null : new
+            {
+                at = collected.Tests.At,
+                total = collected.Tests.Total,
+                passed = collected.Tests.Passed,
+                failed = collected.Tests.Failed,
+                skipped = collected.Tests.Skipped,
+                coverage = collected.Tests.CoverageRate,
+                projects = collected.Tests.Projects.Select(t => new { name = t.Name, total = t.Total, passed = t.Passed, failed = t.Failed, skipped = t.Skipped, seconds = t.Seconds, failures = t.Failures }).ToList(),
+                groups = collected.Tests.Coverage.Select(g => new { name = g.Name, covered = g.Covered, lines = g.Lines, rate = g.Rate }).ToList(),
+            },
+            ranAt = new { smells = collected.SmellsAt, analyzers = collected.AnalyzersAt, crawl = collected.CrawlAt, scripts = collected.ScriptsAt, tests = collected.TestsAt },
         };
         var json = JsonSerializer.Serialize(data).Replace("<", "\\u003c", StringComparison.Ordinal);
         var path = Path.Combine(root, "reports", $"quality-{DateTime.Now:yyyy-MM-dd_HHmm}.html");
@@ -162,8 +178,14 @@ internal static class HtmlReport
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
 main{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
 h1{font-size:1.6rem;margin:.2rem 0}h2{font-size:1.2rem;margin:2rem 0 .6rem;border-bottom:2px solid var(--accent);padding-bottom:.25rem}
-.dim{color:var(--dim)}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.card b{display:block;font-size:1.7rem;line-height:1.1}
+.dim{color:var(--dim)}
+.hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px;margin:16px 0 10px}
+.big{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 22px}
+.big .n{font-size:4rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.big .l{font-weight:600;font-size:1.05rem;margin-top:.4rem}.big .s{color:var(--dim);margin-top:.3rem;font-size:.9rem}
+.good{color:var(--ok)}.bad{color:var(--bad)}.flat{color:var(--ink)}
+.banner{padding:9px 16px;border-radius:10px;font-weight:600;margin:8px 0;border:1px solid var(--line)}
+.banner.ok{background:color-mix(in srgb,var(--ok) 14%,var(--card));color:var(--ok)}.banner.alert{background:color-mix(in srgb,var(--bad) 14%,var(--card));color:var(--bad)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 14px}.chip{background:var(--chip);border-radius:99px;padding:3px 13px;font-size:.82rem;color:var(--dim)}.chip b{font-size:.92rem;margin-right:5px;color:var(--ink)}.chip.alert b{color:var(--bad)}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:10px 0}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:.9rem}
 th,td{padding:6px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{background:var(--chip);cursor:pointer;white-space:nowrap;user-select:none}
@@ -176,10 +198,15 @@ details{margin:6px 0}summary{cursor:pointer;font-weight:600}.scroll{overflow-x:a
 </style></head><body><main>
 <h1>/*TITLE*/ - code quality report</h1>
 <div class="dim" id="meta"></div>
-<div class="cards" id="cards"></div>
+<div class="hero" id="hero"></div>
+<div id="status"></div>
+<div class="chips" id="cards"></div>
 
 <h2>Quality over time</h2>
 <div id="trend"></div>
+
+<h2>Tests and coverage</h2>
+<div id="tests"></div>
 
 <h2>How to run this yourself</h2>
 <div class="panel">Everything here is read-only and runs from the repository root (<code id="rootdir"></code>). Each run rewrites this page (<code>reports\quality-latest.html</code>).
@@ -240,11 +267,80 @@ $('howto').textContent = [
   tool + ' history --backfill          rebuild the timeline from the git history of the baseline',
   ...D.howTo.extra].join('\n');
 $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}. ${D.files.length} source files, ${linesTotal.toLocaleString()} lines (C# and Razor).<br>Latest runs - smells: ${esc(when(D.ranAt.smells))}; analyzers: ${esc(when(D.ranAt.analyzers))}; scripts: ${esc(when(D.ranAt.scripts))}; site crawl: ${esc(when(D.ranAt.crawl))}.`;
-const card = (n, t, cls) => `<div class="card"><b class="${cls || ''}">${n}</b>${t}</div>`;
-$('cards').innerHTML = card(smells.length, 'code smells') + card(analyzers.length, '.NET analyzer findings') +
-  card(count('new') + count('worse'), 'new or worse than baseline', count('new') + count('worse') ? 'new' : '') +
-  card(F.filter(f => f.automation === 'Mechanical').length, 'could be fixed mechanically') +
-  (D.crawl ? card(D.crawl.issues.filter(i => i.severity === 'Error').length, `site errors (${D.crawl.pages} pages crawled)`) : '');
+// The headline: where quality is against where it started. The smell number leaves out the checks added after the start (they would make adding a check look like quality getting worse; they are counted
+// in the small chips below), so it is the same measure as the start and the trend table.
+(function () {
+  const H = D.history || [], NEWER = D.newerRules || [];
+  const sumRules = (map, keep) => Object.entries(map || {}).filter(([r]) => keep(r)).reduce((n, [, v]) => n + v, 0);
+  const original = r => !NEWER.includes(r);
+  const firstSmells = H.find(s => s.Smells);
+  const startSmells = firstSmells ? sumRules(firstSmells.Smells.ByRule, original) : null;
+  const startPressure = firstSmells ? (firstSmells.Smells.PressureByRule ? sumRules(firstSmells.Smells.PressureByRule, original) : firstSmells.Smells.Pressure) : null;
+  const nowSmells = smells.filter(f => original(f.rule)).length;
+  const nowPressure = Math.round(smells.filter(f => original(f.rule)).reduce((n, f) => n + f.weight, 0) * 10) / 10;
+  const newerNow = smells.length - nowSmells;
+  const tone = (now, start) => start === null ? 'flat' : now < start ? 'good' : now > start ? 'bad' : 'flat';
+  const against = (now, start, unit) => {
+    if (start === null) return '<span class="dim">no starting point recorded yet</span>';
+    if (now === start) return `same as at the start (${start}${unit})`;
+    const pct = start === 0 ? '' : `, ${Math.abs(Math.round((now - start) / start * 100))}% ${now < start ? 'lower' : 'higher'}`;
+    return `${now < start ? 'down' : 'up'} from <b>${start}${unit}</b> at the start (${now < start ? '&minus;' : '+'}${Math.round(Math.abs(now - start) * 10) / 10}${pct})`;
+  };
+  const big = (n, label, sub, cls) => `<div class="big"><div class="n ${cls}">${n}</div><div class="l">${label}</div><div class="s">${sub}</div></div>`;
+
+  const T = D.tests;
+  const firstTests = H.find(s => s.Tests);
+  let testsCard;
+  if (!T) {
+    testsCard = big('&ndash;', 'tests', 'No test results yet. Run <code>quality tests</code>, or push: the pre-push check writes them.', 'flat');
+  } else {
+    const cov = T.coverage === null || T.coverage === undefined ? '' : `<br><b>${Math.round(T.coverage * 100)}%</b> of source lines are run by the tests`;
+    const grown = firstTests && firstTests.Tests.Total !== T.total ? `<br>${T.total > firstTests.Tests.Total ? 'up' : 'down'} from <b>${firstTests.Tests.Total}</b> when first measured` : '';
+    testsCard = big(T.total.toLocaleString(), 'tests', `${T.failed ? `<span class="bad"><b>${T.failed} failing</b></span>, ` : ''}${T.passed} passing${T.skipped ? `, ${T.skipped} skipped` : ''}${cov}${grown}<br><span class="dim">as of ${esc(T.at)}</span>`, T.failed ? 'bad' : 'good');
+  }
+
+  $('hero').innerHTML =
+    big(nowSmells, 'code smells', against(nowSmells, startSmells, '') + (newerNow ? `<br><span class="dim">plus ${newerNow} from checks added since the start, counted separately</span>` : ''), tone(nowSmells, startSmells)) +
+    big(nowPressure, 'refactoring pressure', against(nowPressure, startPressure, '') + '<br><span class="dim">how far over its limit the smells add up to</span>', tone(nowPressure, startPressure)) +
+    testsCard;
+
+  const attention = count('new') + count('worse');
+  $('status').innerHTML = attention
+    ? `<div class="banner alert">${attention} finding(s) new or worse than the baseline: fix them, or accept them on purpose (see "How to run this yourself").</div>`
+    : (T && T.failed ? '' : '<div class="banner ok">Nothing is new or worse than the baseline, and no test is failing.</div>') +
+      (T && T.failed ? `<div class="banner alert">${T.failed} test(s) failing: see "Tests and coverage" below.</div>` : '');
+
+  const chip = (n, t, alert) => `<span class="chip${alert ? ' alert' : ''}"><b>${n}</b>${t}</span>`;
+  const mech = F.filter(f => f.automation === 'Mechanical').length;
+  $('cards').innerHTML =
+    chip(analyzers.length, '.NET analyzer findings') +
+    chip(F.length, 'findings accepted on the baseline') +
+    chip(newerNow, 'from checks added since the start') +
+    chip(mech, 'fixable mechanically') +
+    (D.crawl ? chip(D.crawl.issues.filter(i => i.severity === 'Error').length, `site errors (${D.crawl.pages} pages crawled)`) : '');
+})();
+
+// tests and coverage: per project, and per source folder
+(function () {
+  const T = D.tests;
+  if (!T) { $('tests').innerHTML = '<div class="panel dim">No test results yet. <code>quality tests</code> runs every test project with coverage; the pre-push check also writes them each time it runs the tests.</div>'; return; }
+  const pct = r => Math.round(r * 1000) / 10;
+  let html = `<div class="dim">As of ${esc(T.at)}. Coverage is line coverage of our own C# source that the tests load; Razor components are compiled into generated code the coverage cannot map back, so they are not in it.</div>`;
+  html += '<div class="scroll"><table><tr><th>Test project</th><th class="num">Tests</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Skipped</th><th class="num">Seconds</th></tr>' +
+    T.projects.map(p => `<tr><td>${esc(p.name)}</td><td class="num">${p.total}</td><td class="num">${p.passed}</td><td class="num ${p.failed ? 'new' : ''}">${p.failed}</td><td class="num">${p.skipped}</td><td class="num">${p.seconds}</td></tr>`).join('') +
+    `<tr><td><b>All</b></td><td class="num"><b>${T.total}</b></td><td class="num"><b>${T.passed}</b></td><td class="num"><b>${T.failed}</b></td><td class="num"><b>${T.skipped}</b></td><td class="num"></td></tr></table></div>`;
+  const failing = T.projects.filter(p => p.failures.length);
+  if (failing.length) {
+    html += '<div class="panel"><b class="bad">Failing tests</b><ul>' + failing.flatMap(p => p.failures.map(f => `<li><span class="mono">${esc(p.name)}</span>: ${esc(f)}</li>`)).join('') + '</ul></div>';
+  }
+  if (T.groups.length) {
+    const max = Math.max(...T.groups.map(g => g.rate)) || 1;
+    html += '<h3>Line coverage by project</h3><div class="scroll"><table><tr><th>Project</th><th class="num">Lines run</th><th class="num">Lines</th><th class="num">Coverage</th><th></th></tr>' +
+      T.groups.map(g => `<tr><td class="mono">${esc(g.name)}</td><td class="num">${g.covered.toLocaleString()}</td><td class="num">${g.lines.toLocaleString()}</td><td class="num">${pct(g.rate)}%</td><td><div class="bar" style="width:${Math.max(2, 200 * g.rate / max)}px"></div></td></tr>`).join('') +
+      `<tr><td><b>All measured</b></td><td class="num"><b>${T.groups.reduce((n, g) => n + g.covered, 0).toLocaleString()}</b></td><td class="num"><b>${T.groups.reduce((n, g) => n + g.lines, 0).toLocaleString()}</b></td><td class="num"><b>${pct(T.coverage)}%</b></td><td></td></tr></table></div>`;
+  }
+  $('tests').innerHTML = html;
+})();
 
 // quality over time: where it started, last time, now
 (function () {

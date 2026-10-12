@@ -60,6 +60,9 @@ public sealed class ToolConfig
 
     public string[] TestFolders { get; init; } = { "tests" };
 
+    /// <summary>The test projects to run for the test counts and coverage (project files, or folders holding one). Default: every project one folder down under each test folder, except browser tests, which start the site and a browser and run only with --include-browser.</summary>
+    public string[]? TestProjects { get; init; }
+
     /// <summary>Folder names to leave out (for example <c>/Migrations/</c>), on top of build output and generated code.</summary>
     public string[] SkipFolders { get; init; } = Array.Empty<string>();
 

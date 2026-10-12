@@ -37,7 +37,7 @@ using CodeQuality.Quality;
 
 internal static class Program
 {
-    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "history" };
+    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history" };
 
     private static async Task<int> Main(string[] args)
     {
@@ -66,6 +66,14 @@ internal static class Program
 
         Say($"Quality check, {DateTime.Now:yyyy-MM-dd HH:mm}");
         var worst = await RunChecksAsync(command, new RunContext(root, options, Say, collected, config));
+
+        // Whatever the test projects last wrote (the pre-push check writes it on every push, `quality tests` on demand), so every report shows the latest test numbers.
+        if (TestResults.Read(root, config) is { } tests)
+        {
+            collected.Tests = tests;
+            collected.TestsAt = tests.At;
+        }
+
         collected.Save(root);
         var history = await RecordHistoryAsync(root, collected);
         var html = await HtmlReport.WriteAsync(root, collected, Baseline.Load(root), history, config, options.Flag("--include-tests"));
@@ -151,6 +159,13 @@ internal static class Program
             collected.Scripts = summary;
             collected.ScriptsAt = Collected.Now;
             worst = Math.Max(worst, ok ? 0 : 1);
+        }
+
+        if (all || command == "tests")
+        {
+            say(string.Empty);
+            say("== Tests and coverage (every test project, with the coverage collector)");
+            worst = Math.Max(worst, await TestRunner.RunAsync(context));
         }
 
         if (all || command == "crawl")
