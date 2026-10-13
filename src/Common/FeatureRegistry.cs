@@ -47,9 +47,12 @@ public sealed class FeatureRegistryFile
 
     public FeatureFunction[] Functions { get; init; } = [];
 
+    /// <summary>The list as written in <paramref name="json"/> (comments and trailing commas allowed, as in the file).</summary>
+    public static FeatureRegistryFile? Parse(string json) => JsonSerializer.Deserialize<FeatureRegistryFile>(json, Json);
+
     public static FeatureRegistryFile? Load(string root, FeatureSettings? settings)
     {
         var path = Path.Combine(root, settings?.Registry ?? "quality/features.json");
-        return File.Exists(path) ? JsonSerializer.Deserialize<FeatureRegistryFile>(File.ReadAllText(path), Json) : null;
+        return File.Exists(path) ? Parse(File.ReadAllText(path)) : null;
     }
 }

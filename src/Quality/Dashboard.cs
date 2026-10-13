@@ -132,7 +132,7 @@ internal static class Dashboard
         }
     }
 
-    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns, IReadOnlyList<TargetStatus>? release = null, string? consoleUrl = null)
+    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns, IReadOnlyList<TargetStatus>? release = null, string? consoleUrl = null, IReadOnlyList<FeaturePoint>? features = null)
     {
         var first = history.Snapshots.FirstOrDefault(s => s.Smells is not null)?.Smells;
         var last = history.Snapshots.LastOrDefault(s => s.Smells is not null)?.Smells;
@@ -145,6 +145,7 @@ internal static class Dashboard
             newerRules = Rules.Newer,
             release,
             consoleUrl,
+            features,
             firstRules = first?.ByRule,
             lastRules = last?.ByRule,
         };
@@ -160,8 +161,24 @@ internal static class Dashboard
         var path = Path.Combine(Repo.OutputRoot(root), "reports", FileName);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var release = await ReleaseStatusAsync(root, config);
-        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs, release, config.Release?.ConsoleUrl));
+        var features = await FeaturePointsAsync(root, config);
+        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs, release, config.Release?.ConsoleUrl, features));
         return path;
+    }
+
+    // The commits that changed the feature list, oldest first, each with the list as it stood then.
+    private static async Task<List<FeaturePoint>> FeaturePointsAsync(string root, ToolConfig config)
+    {
+        var registry = (config.Features?.Registry ?? "quality/features.json").Replace('\\', '/');
+        var log = await Shell.RunAsync("git", $"log --reverse --format=%h|%ad --date=format:%Y-%m-%d_%H:%M -- {registry}", root, 60);
+        var commits = log.Code != 0
+            ? []
+            : log.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(l => l.Split('|')).Where(p => p.Length == 2).Select(p => (p[0], p[1].Replace('_', ' '))).ToList();
+        return await FeatureTrend.PointsAsync(commits, async commit =>
+        {
+            var shown = await Shell.RunAsync("git", $"show {commit}:{registry}", root, 30);
+            return shown.Code == 0 ? shown.Output : null;
+        });
     }
 
     // What is running where, asked of the live sites each time the dashboard is written (a site that does not answer shows as unknown, never as an error).
@@ -225,7 +242,7 @@ ul{margin:4px 0 4px 18px;padding:0}.mono{font:13px Consolas,monospace}
 const D=/*DATA*/;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const P=D.points, G=D.gate;
+const P=D.points, G=D.gate, F=D.features||[];
 const at=P.length?P[P.length-1]:null, start=P.length?P[0]:null, prev=P.length>1?P[P.length-2]:null;
 $('meta').innerHTML=`Generated ${esc(D.generated)} at commit ${esc(D.commit)}. ${P.length} commits measured since ${start?esc(start.at.slice(0,10)):'-'}. <a href="quality-latest.html">Open the full report</a>. <a href="feature-map.html">Open the feature map</a>.`;
 
@@ -246,6 +263,7 @@ if(at&&at.tests!=null){
   hero+=card(at.tests.toLocaleString(),at.failed?'bad':'',at.failed?`Tests, ${at.failed} failing`:'Tests, all passing',`${cov}. ${delta(at.tests,prev?.tests,false).replace('good','good')}`);
 }
 if(at&&at.analyzers!=null) hero+=card(at.analyzers,at.analyzers===0?'good':'',`Analyzer findings`,`${delta(at.analyzers,prev?.analyzers,true)}`);
+if(F.length){const f=F[F.length-1],before=F.length>1?F[F.length-2]:null;hero+=card(`${f.walked} of ${f.functions}`,'','Functions walked in a browser',`${f.withBrowserTest} have a browser test of some kind. ${delta(f.walked,before?.walked,false).replace('since the last commit','since the last change to the list')}`);}
 if(G.length){const g=G[G.length-1];hero+=card(Math.round(g.slowestSeconds)+' s',g.passed?'':'bad','Last push check',`slowest stage; ${g.passed?'every stage passed':'a stage failed'}. Median of the last ${Math.min(G.length,20)}: ${Math.round(median(G.slice(-20).map(x=>x.slowestSeconds)))} s`);}
 $('hero').innerHTML=hero||'<div class="panel">No measurements yet. Run the quality check once.</div>';
 function median(a){const s=[...a].sort((x,y)=>x-y);const m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;}
@@ -281,6 +299,7 @@ charts+=chart('Code smells per commit',lab,[{name:'Smells (the original rules)',
 charts+=chart('Refactoring pressure',lab,[{name:'How far over its limit each smell is, summed',values:P.map(p=>p.pressure),color:'var(--bad)',area:true}],v=>v.toFixed(0));
 charts+=chart('Tests',lab,[{name:'Tests',values:P.map(p=>p.tests),color:'var(--ok)',area:true}],int);
 charts+=chart('Line coverage',lab,[{name:'Share of lines run by the tests (Razor not included)',values:P.map(p=>p.coverage==null?null:p.coverage*100),color:'var(--ok)'}],v=>v.toFixed(0)+'%');
+charts+=chart('Feature map: functions covered',F.map(f=>`${f.commit} ${f.at.slice(5,10)}`),[{name:'Functions listed',values:F.map(f=>f.functions),color:'var(--dim)',dash:true,thin:true},{name:'With a browser test of some kind',values:F.map(f=>f.withBrowserTest),color:'var(--accent)'},{name:'Walked end to end',values:F.map(f=>f.walked),color:'var(--ok)',area:true}],int);
 charts+=chart('Analyzer findings',lab,[{name:'.NET analyzer findings',values:P.map(p=>p.analyzers),color:'var(--bad)'}],int);
 charts+=chart('Push check: slowest stage',G.map(g=>g.at.slice(5,16).replace('T',' ')),[{name:'Seconds the push waited',values:G.map(g=>g.slowestSeconds),color:'var(--accent)'}],v=>Math.round(v)+' s');
 $('charts').innerHTML=charts;
