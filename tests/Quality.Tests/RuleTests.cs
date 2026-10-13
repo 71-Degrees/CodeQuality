@@ -180,4 +180,21 @@ public sealed class RuleTests : IDisposable
         Assert.Equal(1, total);
         Assert.Equal(2, pressure);
     }
+
+    [Fact]
+    public void ADateDefaultOnADataPropertyIsNotAClockReadToFix_ButARealReadIs()
+    {
+        var findings = Scan("src/Models/Thing.cs", """
+            using System;
+            class Thing
+            {
+                public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+                public DateTime Expires { get; set; } = DateTime.UtcNow.AddDays(1);
+                public bool IsOld() => DateTimeOffset.UtcNow - CreatedAt > TimeSpan.FromDays(1);
+                void M() { var now = DateTime.Now; }
+            }
+            """);
+
+        Assert.Equal(2, findings.Single(f => f.Rule == "DirectClock").Value);   // the two reads in methods, not the two defaults
+    }
 }

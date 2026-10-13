@@ -88,9 +88,14 @@ internal static class StandardRules
 
     private static bool HasSetter(PropertyDeclarationSyntax p) => p.AccessorList?.Accessors.Any(a => a.IsKind(SyntaxKind.SetAccessorDeclaration)) == true;
 
+    // A date default on a data property (`public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;`) is not counted: it stamps the object when it is made, and a TimeProvider would not make it any more testable.
     private static bool IsClockRead(MemberAccessExpressionSyntax access) =>
         access.Name.Identifier.Text is "Now" or "UtcNow" or "Today"
-        && access.Expression.ToString() is "DateTime" or "DateTimeOffset" or "System.DateTime" or "System.DateTimeOffset";
+        && access.Expression.ToString() is "DateTime" or "DateTimeOffset" or "System.DateTime" or "System.DateTimeOffset"
+        && !IsPropertyDefault(access);
+
+    private static bool IsPropertyDefault(SyntaxNode node) =>
+        node.Ancestors().OfType<EqualsValueClauseSyntax>().FirstOrDefault()?.Parent is PropertyDeclarationSyntax;
 
     private static bool IsHttpClient(BaseObjectCreationExpressionSyntax creation) =>
         creation is ObjectCreationExpressionSyntax { Type: var type } && type.ToString() is "HttpClient" or "System.Net.Http.HttpClient";
