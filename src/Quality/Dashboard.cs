@@ -14,7 +14,7 @@ namespace CodeQuality.Quality;
 /// One commit on the dashboard: the numbers as they stood the last time a run measured them at that commit. <see cref="Smells"/> leaves out the rules added after the first recording
 /// (<see cref="Rules.Newer"/>) so that adding a check never makes the line climb; <see cref="SmellsAll"/> counts everything.
 /// </summary>
-internal sealed record DashboardPoint(string Commit, string At, int Smells, int SmellsAll, double Pressure, int? Analyzers, int? Tests, int? Failed, double? Coverage);
+internal sealed record DashboardPoint(string Commit, string At, int Smells, int SmellsAll, double Pressure, int? Analyzers, int? Tests, int? Failed, double? Coverage, double PressureAll = 0, string Note = "");
 
 /// <summary>One push's check run: when it was, how long its slowest stage took (the stages ran side by side, so that is what the push waited for) and whether every stage passed.</summary>
 internal sealed record GateRun(string At, double SlowestSeconds, bool Passed);
@@ -33,14 +33,14 @@ internal static class Dashboard
     /// One point per commit, oldest first. A commit measured several times keeps its last smell counts and its fullest test numbers: the push check runs the unit tests only and the background run all of them, so
     /// the two alternate within a commit. A commit where only the small set ran (far fewer tests than the recent full runs) shows no test numbers rather than a dip that never happened.
     /// </summary>
-    public static List<DashboardPoint> Points(History history)
+    public static List<DashboardPoint> Points(History history, IReadOnlyDictionary<string, string>? subjects = null)
     {
         var points = new List<DashboardPoint>();
         foreach (var snapshot in history.Snapshots.Where(s => s.Smells is not null))
         {
             var (smells, pressure) = snapshot.Smells!.Without(Rules.Newer);
             var tests = points.Count > 0 && points[^1].Commit == snapshot.Commit ? FullerTests(points[^1], snapshot.Tests) : snapshot.Tests;
-            var point = new DashboardPoint(snapshot.Commit, snapshot.At, smells, snapshot.Smells.Total, pressure, snapshot.Analyzers?.Total, tests?.Total, tests?.Failed, tests?.Coverage);
+            var point = new DashboardPoint(snapshot.Commit, snapshot.At, smells, snapshot.Smells.Total, pressure, snapshot.Analyzers?.Total, tests?.Total, tests?.Failed, tests?.Coverage, snapshot.Smells.Pressure, NoteFor(snapshot, subjects));
             if (points.Count > 0 && points[^1].Commit == point.Commit)
             {
                 points[^1] = point;
@@ -53,6 +53,10 @@ internal static class Dashboard
 
         return HideSmallRuns(points);
     }
+
+    // What the commit was about: the note the snapshot was recorded with, or - for the push check's own snapshots, which carry none - the commit's subject line from git.
+    private static string NoteFor(Snapshot snapshot, IReadOnlyDictionary<string, string>? subjects) =>
+        !string.IsNullOrWhiteSpace(snapshot.Note) ? snapshot.Note : subjects is not null && subjects.TryGetValue(snapshot.Commit, out var subject) ? subject : string.Empty;
 
     // The fuller run's test numbers, with the lowest coverage either run recorded: the small set covers more of what it runs, and a headline must not overstate.
     private static TestCounts? FullerTests(DashboardPoint earlier, TestCounts? later)
@@ -132,7 +136,7 @@ internal static class Dashboard
         }
     }
 
-    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns, IReadOnlyList<TargetStatus>? release = null, string? consoleUrl = null, IReadOnlyList<FeaturePoint>? features = null)
+    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns, IReadOnlyList<TargetStatus>? release = null, string? consoleUrl = null, IReadOnlyList<FeaturePoint>? features = null, IReadOnlyDictionary<string, string>? subjects = null)
     {
         var first = history.Snapshots.FirstOrDefault(s => s.Smells is not null)?.Smells;
         var last = history.Snapshots.LastOrDefault(s => s.Smells is not null)?.Smells;
@@ -140,7 +144,7 @@ internal static class Dashboard
         {
             generated = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
             commit,
-            points = Points(history),
+            points = Points(history, subjects),
             gate = gateRuns.TakeLast(60).ToList(),
             newerRules = Rules.Newer,
             release,
@@ -162,8 +166,31 @@ internal static class Dashboard
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var release = await ReleaseStatusAsync(root, config);
         var features = await FeaturePointsAsync(root, config);
-        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs, release, config.Release?.ConsoleUrl, features));
+        var subjects = await CommitSubjectsAsync(root);
+        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs, release, config.Release?.ConsoleUrl, features, subjects));
         return path;
+    }
+
+    // The subject line of each recent commit, by its short id, for the commit table.
+    private static async Task<Dictionary<string, string>> CommitSubjectsAsync(string root)
+    {
+        var log = await Shell.RunAsync("git", "log -n 300 --format=%h|%s", root, 60);
+        var subjects = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (log.Code != 0)
+        {
+            return subjects;
+        }
+
+        foreach (var line in log.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var bar = line.IndexOf('|', StringComparison.Ordinal);
+            if (bar > 0)
+            {
+                subjects[line[..bar]] = line[(bar + 1)..];
+            }
+        }
+
+        return subjects;
     }
 
     // The commits that changed the feature list, oldest first, each with the list as it stood then.
@@ -296,7 +323,7 @@ const int=v=>Math.round(v).toLocaleString();
 const lab=P.map(p=>`${p.commit} ${p.at.slice(5,10)}`);
 let charts='';
 charts+=chart('Code smells per commit',lab,[{name:'Smells (the original rules)',values:P.map(p=>p.smells),color:'var(--accent)',area:true},{name:'All rules, including newer checks',values:P.map(p=>p.smellsAll),color:'var(--dim)',dash:true,thin:true}],int);
-charts+=chart('Refactoring pressure',lab,[{name:'How far over its limit each smell is, summed',values:P.map(p=>p.pressure),color:'var(--bad)',area:true}],v=>v.toFixed(0));
+charts+=chart('Refactoring pressure',lab,[{name:'How far over its limit each smell is, summed (the original rules)',values:P.map(p=>p.pressure),color:'var(--bad)',area:true},{name:'All rules, including newer checks',values:P.map(p=>p.pressureAll),color:'var(--dim)',dash:true,thin:true}],v=>v.toFixed(0));
 charts+=chart('Tests',lab,[{name:'Tests',values:P.map(p=>p.tests),color:'var(--ok)',area:true}],int);
 charts+=chart('Line coverage',lab,[{name:'Share of lines run by the tests (Razor not included)',values:P.map(p=>p.coverage==null?null:p.coverage*100),color:'var(--ok)'}],v=>v.toFixed(0)+'%');
 charts+=chart('Feature map: functions covered',F.map(f=>`${f.commit} ${f.at.slice(5,10)}`),[{name:'Functions listed',values:F.map(f=>f.functions),color:'var(--dim)',dash:true,thin:true},{name:'With a browser test of some kind',values:F.map(f=>f.withBrowserTest),color:'var(--accent)'},{name:'Walked end to end',values:F.map(f=>f.walked),color:'var(--ok)',area:true}],int);
@@ -322,8 +349,11 @@ $('rules').innerHTML='<tr><th>Rule</th><th class="num">At the start</th><th clas
   const newer=D.newerRules.includes(r), a=fr[r], b=lr[r]||0;
   const cls=a==null?'':(b<a?'good':b>a?'bad':'');
   return `<tr><td>${esc(r)}${newer?' <span class="dim">(added later)</span>':''}</td><td class="num">${a==null?'-':a}</td><td class="num ${cls}">${b}</td></tr>`;}).join('');
-$('recent').innerHTML='<tr><th>Commit</th><th>When</th><th class="num">Smells</th><th class="num">Tests</th><th class="num">Coverage</th></tr>'+[...P].reverse().slice(0,15).map(p=>
-  `<tr><td class="mono">${esc(p.commit)}</td><td>${esc(p.at)}</td><td class="num">${p.smells}</td><td class="num">${p.tests??'-'}</td><td class="num">${p.coverage==null?'-':(p.coverage*100).toFixed(1)+'%'}</td></tr>`).join('');
+// Each commit with what it did to the smell count (so the commits that cut findings stand out) and what it was about.
+const rows=P.map((p,i)=>({p,d:i?p.smells-P[i-1].smells:null,dAll:i?p.smellsAll-P[i-1].smellsAll:null}));
+const dcell=(d)=>d==null?'-':d===0?'<span class="dim">0</span>':`<span class="${d<0?'good':'bad'}">${d<0?'&minus;':'+'}${Math.abs(d)}</span>`;
+$('recent').innerHTML='<tr><th>Commit</th><th>When</th><th class="num">Smells</th><th class="num" title="Change in the smell count since the commit before, original rules">&Delta;</th><th class="num" title="Change counting every rule, including the newer checks">&Delta; all</th><th class="num">Tests</th><th class="num">Coverage</th><th>What</th></tr>'+[...rows].reverse().slice(0,15).map(({p,d,dAll})=>
+  `<tr><td class="mono">${esc(p.commit)}</td><td>${esc(p.at)}</td><td class="num">${p.smells}</td><td class="num">${dcell(d)}</td><td class="num">${dcell(dAll)}</td><td class="num">${p.tests??'-'}</td><td class="num">${p.coverage==null?'-':(p.coverage*100).toFixed(1)+'%'}</td><td class="dim" title="${esc(p.note||'')}">${esc((p.note||'').length>90?(p.note||'').slice(0,88)+'…':(p.note||''))}</td></tr>`).join('');
 </script></main></body></html>
 """;
 }

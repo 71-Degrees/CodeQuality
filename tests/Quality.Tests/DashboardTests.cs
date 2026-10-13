@@ -31,6 +31,29 @@ public class DashboardTests
     }
 
     [Fact]
+    public void EachPointCarriesThePressureOfEveryRuleAndWhatTheCommitWasAbout()
+    {
+        var snapshot = Snap("aaa", "2026-10-01 09:00", longMethods: 10, duplicates: 90) with { Note = "Refactor the host page" };
+
+        var point = Dashboard.Points(HistoryOf(snapshot))[0];
+
+        Assert.Equal(10, point.Pressure);   // the original rules
+        Assert.Equal(100, point.PressureAll);   // every rule, so work on the newer checks shows too
+        Assert.Equal("Refactor the host page", point.Note);
+    }
+
+    [Fact]
+    public void ASnapshotWithNoNoteTakesItsCommitsSubjectFromGit_ButAKeptNoteWins()
+    {
+        var subjects = new Dictionary<string, string> { ["aaa"] = "Fix the lobby", ["bbb"] = "Something else" };
+        var history = HistoryOf(Snap("aaa", "2026-10-01 09:00", 10), Snap("bbb", "2026-10-02 09:00", 9) with { Note = "Hand-written note" }, Snap("ccc", "2026-10-03 09:00", 8));
+
+        var points = Dashboard.Points(history, subjects);
+
+        Assert.Equal(["Fix the lobby", "Hand-written note", ""], points.Select(p => p.Note));
+    }
+
+    [Fact]
     public void TheHeadlineLeavesOutRulesAddedLater_ButTheAllRulesLineCountsThem()
     {
         var points = Dashboard.Points(HistoryOf(Snap("aaa", "2026-10-01 09:00", longMethods: 10, duplicates: 90)));

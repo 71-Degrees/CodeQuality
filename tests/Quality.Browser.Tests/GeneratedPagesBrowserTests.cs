@@ -99,5 +99,7 @@ public sealed class GeneratedPagesBrowserTests
         Assert.Contains("src/Billing.cs", text, StringComparison.Ordinal);
         Assert.Contains("41 of 63", text, StringComparison.Ordinal);   // the card for the latest change to the list
         Assert.Contains("Feature map: functions covered", text, StringComparison.Ordinal);
+        Assert.Contains("All rules, including newer checks", text, StringComparison.Ordinal);   // the second pressure line
+        Assert.Contains("What", text, StringComparison.Ordinal);   // the commit table's new column
     }
 }
