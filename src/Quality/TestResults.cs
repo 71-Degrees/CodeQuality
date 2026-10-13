@@ -130,11 +130,18 @@ internal static class TestResults
 
         var failures = doc.Descendants(Trx + "UnitTestResult")
             .Where(r => string.Equals((string?)r.Attribute("outcome"), "Failed", StringComparison.OrdinalIgnoreCase))
-            .Select(r => (string?)r.Attribute("testName") ?? "(unnamed test)")
+            .Select(r => DescribeFailure((string?)r.Attribute("testName") ?? "(unnamed test)", r.Descendants(Trx + "Message").FirstOrDefault()?.Value))
             .Take(25)
             .ToList();
 
         return new ProjectTests(name, total, passed, failed, Math.Max(0, total - passed - failed), seconds, failures);
+    }
+
+    // The test and the first line of what it said, so the report shows why without anyone opening the TRX file.
+    private static string DescribeFailure(string name, string? message)
+    {
+        var line = message?.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
+        return string.IsNullOrEmpty(line) ? name : $"{name} - {(line.Length > 300 ? line[..300] + "..." : line)}";
     }
 
     private static int IntOf(XElement? element, string attribute) =>

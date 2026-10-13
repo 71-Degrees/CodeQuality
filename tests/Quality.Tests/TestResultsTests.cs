@@ -55,6 +55,33 @@ public sealed class TestResultsTests : IDisposable
     }
 
     [Fact]
+    public void AFailureCarriesTheFirstLineOfWhatTheTestSaid_SoTheReportShowsWhy()
+    {
+        var trx = Trx.Replace(
+            "<UnitTestResult testName=\"Rules.AreBroken\" outcome=\"Failed\" />",
+            "<UnitTestResult testName=\"Rules.AreBroken\" outcome=\"Failed\"><Output><ErrorInfo><Message>Assert.EndsWith() Failure: String end does not match\nString: \"terms#billing?\"</Message><StackTrace>at x</StackTrace></ErrorInfo></Output></UnitTestResult>",
+            StringComparison.Ordinal);
+
+        var project = TestResults.ParseTrx("Core.Tests", trx);
+
+        Assert.Equal(["Rules.AreBroken - Assert.EndsWith() Failure: String end does not match"], project.Failures);
+    }
+
+    [Fact]
+    public void ALongMessageIsCutShort()
+    {
+        var trx = Trx.Replace(
+            "<UnitTestResult testName=\"Rules.AreBroken\" outcome=\"Failed\" />",
+            $"<UnitTestResult testName=\"Rules.AreBroken\" outcome=\"Failed\"><Output><ErrorInfo><Message>{new string('x', 500)}</Message></ErrorInfo></Output></UnitTestResult>",
+            StringComparison.Ordinal);
+
+        var failure = Assert.Single(TestResults.ParseTrx("Core.Tests", trx).Failures);
+
+        Assert.EndsWith("...", failure, StringComparison.Ordinal);
+        Assert.True(failure.Length < 330);
+    }
+
+    [Fact]
     public void ALineCountsAsRunIfAnyProjectRanIt()
     {
         var files = new Dictionary<string, Dictionary<int, int>>(StringComparer.OrdinalIgnoreCase);

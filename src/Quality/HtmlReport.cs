@@ -188,7 +188,7 @@ h1{font-size:1.6rem;margin:.2rem 0}h2{font-size:1.2rem;margin:2rem 0 .6rem;borde
 .big .n{font-size:4rem;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}.big .l{font-weight:600;font-size:1.05rem;margin-top:.4rem}.big .s{color:var(--dim);margin-top:.3rem;font-size:.9rem}
 .good{color:var(--ok)}.bad{color:var(--bad)}.flat{color:var(--ink)}
 .banner{padding:9px 16px;border-radius:10px;font-weight:600;margin:8px 0;border:1px solid var(--line)}
-.banner.ok{background:color-mix(in srgb,var(--ok) 14%,var(--card));color:var(--ok)}.banner.alert{background:color-mix(in srgb,var(--bad) 14%,var(--card));color:var(--bad)}
+a.banner{display:block;text-decoration:none}a.banner:hover{text-decoration:underline}html{scroll-behavior:smooth}.banner.ok{background:color-mix(in srgb,var(--ok) 14%,var(--card));color:var(--ok)}.banner.alert{background:color-mix(in srgb,var(--bad) 14%,var(--card));color:var(--bad)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 14px}.chip{background:var(--chip);border-radius:99px;padding:3px 13px;font-size:.82rem;color:var(--dim)}.chip b{font-size:.92rem;margin-right:5px;color:var(--ink)}.chip.alert b{color:var(--bad)}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:10px 0}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:.9rem}
@@ -204,6 +204,7 @@ details{margin:6px 0}summary{cursor:pointer;font-weight:600}.scroll{overflow-x:a
 <div class="dim" id="meta"></div>
 <div class="hero" id="hero"></div>
 <div id="status"></div>
+<div id="attention"></div>
 <div class="chips" id="cards"></div>
 
 <h2>Quality over time</h2>
@@ -314,10 +315,18 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
 
   const attention = count('new') + count('worse');
   const failedTests = T ? T.projects.reduce((n, p) => n + p.failed, 0) : 0;
+  // Each alert is a link to the list of what it is about, so the way from "something is wrong" to "this, here" is one click.
   $('status').innerHTML =
-    (attention ? `<div class="banner alert">${attention} finding(s) new or worse than the baseline: fix them, or accept them on purpose (see "How to run this yourself").</div>` : '') +
-    (failedTests ? `<div class="banner alert">${failedTests} test(s) failing (browser tests included): see "Tests and coverage" below.</div>` : '') +
+    (attention ? `<a class="banner alert" href="#attention">${attention} finding(s) new or worse than the baseline: click to see which. Fix them, or accept them on purpose (see "How to run this yourself").</a>` : '') +
+    (failedTests ? `<a class="banner alert" href="#failing">${failedTests} test(s) failing (browser tests included): click to see which, and why.</a>` : '') +
     (attention || failedTests ? '' : '<div class="banner ok">Nothing is new or worse than the baseline, and no test is failing.</div>');
+
+  const needAttention = F.filter(f => f.status === 'new' || f.status === 'worse').sort((a, b) => (a.status === b.status ? 0 : a.status === 'new' ? -1 : 1) || (a.file > b.file ? 1 : a.file < b.file ? -1 : 0));
+  $('attention').innerHTML = needAttention.length
+    ? '<div class="panel" id="attention-list"><b class="bad">New or worse than the baseline</b> <span class="dim">(these fail the push check)</span><div class="scroll"><table><tr><th>Rule</th><th>Where</th><th>What</th><th>Baseline</th></tr>' +
+      needAttention.map(f => `<tr><td>${esc(f.rule)}</td><td><span class="mono">${esc(f.file)}:${f.line}</span>${f.member && f.member !== '(file)' ? '<br>' + esc(f.member) : ''}</td><td>${esc(f.message)}</td><td><span class="${f.status}">${f.status}</span></td></tr>`).join('') +
+      '</table></div></div>'
+    : '';
 
   const chip = (n, t, alert) => `<span class="chip${alert ? ' alert' : ''}"><b>${n}</b>${t}</span>`;
   const mech = F.filter(f => f.automation === 'Mechanical').length;
@@ -350,7 +359,7 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
   }
   const failing = T.projects.filter(p => p.failures.length);
   if (failing.length) {
-    html += '<div class="panel"><b class="bad">Failing tests</b><ul>' + failing.flatMap(p => p.failures.map(f => `<li><span class="mono">${esc(p.name)}</span>: ${esc(f)}</li>`)).join('') + '</ul></div>';
+    html += '<div class="panel" id="failing"><b class="bad">Failing tests</b> <span class="dim">(the test, then what it said)</span><ul>' + failing.flatMap(p => p.failures.map(f => `<li><span class="mono">${esc(p.name)}</span>: ${esc(f)}</li>`)).join('') + '</ul></div>';
   }
   if (T.groups.length) {
     const max = Math.max(...T.groups.map(g => g.rate)) || 1;
