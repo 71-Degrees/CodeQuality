@@ -93,6 +93,37 @@ public sealed class BrowserToolsTests
     }
 
     [Fact]
+    public async Task SitesAreStartedOneAtATime_SoTwoVariantsNeverBuildTheSameProjectTogether()
+    {
+        var running = 0;
+        var overlapped = false;
+
+        async Task<int> StartAsync()
+        {
+            if (Interlocked.Increment(ref running) > 1)
+            {
+                overlapped = true;
+            }
+
+            await Task.Delay(100);
+            Interlocked.Decrement(ref running);
+            return 1;
+        }
+
+        await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => SiteHost.OneAtATimeAsync(StartAsync)));
+
+        Assert.False(overlapped);
+    }
+
+    [Fact]
+    public async Task AFailedStartDoesNotHoldUpTheNextOne()
+    {
+        await Assert.ThrowsAsync<InvalidOperationException>(() => SiteHost.OneAtATimeAsync<int>(() => throw new InvalidOperationException("build failed")));
+
+        Assert.Equal(7, await SiteHost.OneAtATimeAsync(() => Task.FromResult(7)));
+    }
+
+    [Fact]
     public async Task WaitingForTheSiteGivesUpAfterTheTimeout()
     {
         await Assert.ThrowsAsync<TimeoutException>(() => SiteHost.WaitUntilReadyAsync("http://127.0.0.1:1/healthz", TimeSpan.FromSeconds(1), () => false));

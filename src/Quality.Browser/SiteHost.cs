@@ -61,7 +61,25 @@ public sealed class SiteHost : IAsyncDisposable
         }
     }
 
-    public static async Task<SiteHost> StartAsync(SiteHostOptions options)
+    // Two sites started together (a second variant of the same project) would both build it at once and fight over the build output's files; one at a time, the first does the build and the rest find it done.
+    private static readonly SemaphoreSlim StartOneAtATime = new(1, 1);
+
+    public static Task<SiteHost> StartAsync(SiteHostOptions options) => OneAtATimeAsync(() => StartCoreAsync(options));
+
+    internal static async Task<T> OneAtATimeAsync<T>(Func<Task<T>> start)
+    {
+        await StartOneAtATime.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return await start().ConfigureAwait(false);
+        }
+        finally
+        {
+            StartOneAtATime.Release();
+        }
+    }
+
+    private static async Task<SiteHost> StartCoreAsync(SiteHostOptions options)
     {
         var started = Stopwatch.StartNew();
         var baseUrl = $"http://127.0.0.1:{FreePort()}";
