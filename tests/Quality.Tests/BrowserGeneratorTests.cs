@@ -47,6 +47,14 @@ public sealed class BrowserGeneratorTests
     }
 
     [Fact]
+    public void TheQuickFilterNamesTheJourneyOfEachSelectedFunction()
+    {
+        var filter = BrowserCommand.Filter([Function("read-legal", "Anyone", [], []), Function("home", "Anyone", [], [])]);
+
+        Assert.Equal("FullyQualifiedName~Journeys.read_legal|FullyQualifiedName~Journeys.home", filter);
+    }
+
+    [Fact]
     public void RouteParametersAreCutOffSoAnyRecordSatisfiesThePage()
     {
         Assert.Equal("/chronicle/", BrowserGenerator.Base("/chronicle/{Slug}/map"));

@@ -37,7 +37,7 @@ internal static class QuickCommand
 
         // --no-smells: the push check already ran the whole-repository smells ratchet, so only the tests are wanted here.
         var worst = options.Flag("--no-smells") ? 0 : SmellsOfChanged(root, options, config, changed);
-        if (!options.Flag("--no-tests"))
+        if (!options.Flag("--no-tests") || options.Flag("--browser"))
         {
             worst = Math.Max(worst, await TestsOfChanged(root, options, config, changed));
         }
@@ -90,8 +90,19 @@ internal static class QuickCommand
             Console.WriteLine($"  no test is about anything in {file}");
         }
 
+        var browser = options.Flag("--browser") && !options.Flag("--plan") ? await BrowserOfChanged(root, config, plan) : 0;
+        if (options.Flag("--no-tests"))
+        {
+            return browser;   // --no-tests --browser: just the journeys
+        }
+
         if (plan.ClassesByProject.Count == 0)
         {
+            if (browser != 0)
+            {
+                return browser;
+            }
+
             Console.WriteLine("  No test class selected - nothing to run. (Reached only through the running app? The full suite covers it at the push.)");
             return 0;
         }
@@ -101,7 +112,7 @@ internal static class QuickCommand
             return PrintPlan(root, config, plan);
         }
 
-        var worst = 0;
+        var worst = browser;
         foreach (var (project, classes) in plan.ClassesByProject)
         {
             var name = Path.GetFileNameWithoutExtension(project);
@@ -114,6 +125,24 @@ internal static class QuickCommand
         }
 
         return worst;
+    }
+
+    /// <summary>--browser: drives the generated journeys of just the functions the change touches in a real browser (see <c>quality browser --generate</c>). Skipped, with the reason, where there is no such project.</summary>
+    private static async Task<int> BrowserOfChanged(string root, ToolConfig config, TestPlan plan)
+    {
+        var folder = BrowserCommand.ProjectFolder(root, config);
+        var project = Directory.Exists(folder) ? Directory.EnumerateFiles(folder, "*.csproj").FirstOrDefault() : null;
+        if (project is null || plan.Functions.Count == 0)
+        {
+            Console.WriteLine(project is null ? "  --browser: no generated browser tests here (run `quality browser --generate`)." : "  --browser: the change touches no function, so no journey to drive.");
+            return 0;
+        }
+
+        Console.WriteLine($"Driving {plan.Functions.Count} journey(s) in a browser: {string.Join(", ", plan.Functions.Select(f => f.Id))}...");
+        var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q --filter \"{BrowserCommand.Filter(plan.Functions)}\"", root, 1800);
+        var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
+        Console.WriteLine("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
+        return code == 0 ? 0 : summary is null ? 2 : 1;
     }
 
     /// <summary>--plan: says which test classes would run, of how many each project has, without running them - the number to judge a by-name selection by before trusting it as a gate.</summary>

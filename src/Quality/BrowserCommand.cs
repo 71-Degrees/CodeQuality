@@ -39,7 +39,7 @@ internal static class BrowserCommand
         }
 
         var siteName = config.SiteName ?? Path.GetFileName(root);
-        var folder = Path.Combine(root, settings.TestProject ?? Path.Combine("tests", BrowserGenerator.Identifier(siteName) + ".Browser.Tests"));
+        var folder = ProjectFolder(root, config);
         var files = BrowserGenerator.Files(siteName, settings, registry, Path.GetRelativePath(folder, Path.Combine(root, "tools", "CodeQuality")), webProject);
         Directory.CreateDirectory(folder);
         var wrote = new List<string>();
@@ -57,6 +57,13 @@ internal static class BrowserCommand
 
         return (true, $"wrote {string.Join(", ", wrote)} in {Path.GetRelativePath(root, folder)} for {registry.Functions.Length} function(s). Run: dotnet test {Path.GetRelativePath(root, folder)}");
     }
+
+    /// <summary>Where the generated browser-test project lives (whether or not it exists yet).</summary>
+    internal static string ProjectFolder(string root, ToolConfig config) =>
+        Path.Combine(root, config.Browser?.TestProject ?? Path.Combine("tests", BrowserGenerator.Identifier(config.SiteName ?? Path.GetFileName(root)) + ".Browser.Tests"));
+
+    /// <summary>The xunit filter that runs just these functions' generated journeys.</summary>
+    internal static string Filter(IEnumerable<FeatureFunction> functions) => string.Join('|', functions.Select(f => "FullyQualifiedName~Journeys." + BrowserGenerator.MethodName(f.Id)));
 
     /// <summary>The web project, when quality.json does not name it: the first project under the source folders that uses the web SDK, as a path relative to the root.</summary>
     internal static string? FindWebProject(string root, ToolConfig config) =>
