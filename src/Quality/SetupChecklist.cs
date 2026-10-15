@@ -32,9 +32,10 @@ internal enum Level
 /// <summary>
 /// What a step costs. <see cref="RunMinutes"/> is machine time to run it and <see cref="EffortMinutes"/> the time to set it up (Claude's or the owner's); <see cref="NeedsApproval"/> is true when running it
 /// touches something outside the repository (real traffic to a site), so it waits for the owner's OK. <see cref="Engine"/> says what executes the bulk of the work - a .NET tool, Node, a browser, or Claude editing
-/// files - <see cref="Tokens"/> how much Claude's own reading, writing and thinking it takes (the part that burns tokens), and <see cref="Machine"/> how hard it is on the computer; each with its reason.
+/// files - <see cref="Tokens"/> what Claude's own reading, writing and thinking costs in tokens for a site of the given size (the part that burns the owner's session; a .NET run costs none), and
+/// <see cref="Machine"/> how hard it is on the computer, with its reason.
 /// </summary>
-internal sealed record SetupCost(int RunMinutes, int EffortMinutes, bool NeedsApproval, string Engine, Level Tokens, string TokensWhy, Level Machine, string MachineWhy);
+internal sealed record SetupCost(int RunMinutes, int EffortMinutes, bool NeedsApproval, string Engine, Func<SiteSize, TokenRange> Tokens, Level Machine, string MachineWhy);
 
 /// <summary>One thing a site does once, when it first gets Code Quality. <see cref="Benefit"/> is 1-5 (what it tells you or prevents); <see cref="How"/> may contain {tool}, replaced by the site's tool command.</summary>
 internal sealed record SetupItem(string Id, string Title, int Benefit, string What, SetupCost Cost, string How)
@@ -79,53 +80,70 @@ internal static class SetupChecklist
     [
         new("baseline", "Accept the smells baseline", 5,
             "Runs the smell scan over every C# and Razor file and records today's findings as the accepted starting point (quality/baseline.json); from then on only NEW or WORSE findings fail.",
-            new(1, 2, false, ".NET tool (CodeQuality; no build)", Level.Low, "Claude reads the findings summary and asks before accepting them", Level.Low, "a Roslyn read of the source: seconds, no build"),
+            new(1, 2, false, ".NET tool (CodeQuality; no build)", Fixed(3_000, 8_000, "Claude reads the findings summary and asks before accepting them"), Level.Low, "a Roslyn read of the source: seconds, no build"),
             "{tool} smells --update-baseline   (read the findings first; accepting them is the owner's call)"),
         new("analyzer-baseline", "Accept the .NET analyzer baseline", 4,
             "Builds the whole solution into a scratch folder with the .NET analyzers at Recommended and records the warnings as accepted, the same way.",
-            new(2, 2, false, ".NET tool driving `dotnet build`", Level.Low, "Claude reads a per-rule summary", Level.Medium, "a full build: CPU and disk for about a minute"),
+            new(2, 2, false, ".NET tool driving `dotnet build`", Fixed(2_000, 5_000, "Claude reads a per-rule summary"), Level.Medium, "a full build: CPU and disk for about a minute"),
             "{tool} analyzers --update-baseline"),
         new("gate", "Run the smells ratchet in the push gate", 5,
             "Adds a smells step to the repository's pre-push check, so a push with new or worse findings is refused instead of discovered later.",
-            new(0, 15, false, "Claude edits C# in tools/Deploy; the check itself is the .NET tool", Level.Medium, "Claude reads the existing pattern, writes a small class and proves it with a test and a push", Level.Low, "one build and one test run to prove it"),
+            new(0, 15, false, "Claude edits C# in tools/Deploy; the check itself is the .NET tool", Fixed(12_000, 25_000, "Claude reads the existing pattern, writes a small class and proves it with a test and a push"), Level.Low, "one build and one test run to prove it"),
             "add the smells step to the repository's pre-push check (it fails on NEW or WORSE findings only); see tools/Deploy/QualityChecks.cs in MyWave"),
         new("reports-ignored", "Keep reports/ out of git", 1,
             "Adds `reports/` to .gitignore so the generated reports never get committed.",
-            new(0, 1, false, "Claude edits one file", Level.None, "a one-line edit", Level.None, "nothing runs"),
+            new(0, 1, false, "Claude edits one file", Fixed(500, 1_500, "a one-line edit"), Level.None, "nothing runs"),
             "add `reports/` to .gitignore"),
         new("tests-coverage", "Measure the tests and their coverage", 4,
             "Runs every test project with the coverage collector and records pass/fail counts and line coverage per project folder, for the report and the trend.",
-            new(3, 1, false, ".NET (`dotnet test`, started by the CodeQuality tool)", Level.Low, "Claude reads a one-screen summary", Level.Medium, "builds and runs every test: CPU for about as long as the repository's full test suite"),
+            new(3, 1, false, ".NET (`dotnet test`, started by the CodeQuality tool)", Fixed(2_000, 4_000, "Claude reads a one-screen summary"), Level.Medium, "builds and runs every test: CPU for about as long as the repository's full test suite"),
             "{tool} tests"),
         new("features", "Draw the feature map and list the site's functions", 4,
             "Draws a map of every page (clicks from the home page, which tests mention it, whether the crawler reaches it), then Claude writes quality/features.json: the site's functions, who may do each, its pages and its tests.",
-            new(1, 40, false, "map: .NET tool; features.json: Claude authoring", Level.High, "Claude reads the pages and tests and writes a long curated list - the biggest token spend on this list", Level.Low, "the map is seconds, no build"),
+            new(1, 40, false, "map: .NET tool; features.json: Claude authoring", FeaturesTokens, Level.Low, "the map is seconds, no build"),
             "{tool} features --no-open, then write quality/features.json (what a person does, who may, which pages, which tests)"),
         new("analyzers-on", "Switch the analyzers on in Directory.Build.props", 3,
             "Turns the .NET analyzers on in every build (AnalysisMode=Recommended), so warnings show as you code instead of only when asked.",
-            new(1, 10, false, "Claude edits Directory.Build.props; `dotnet build` shows the effect", Level.Medium, "Claude edits it, then works through the warnings the build now shows", Level.Medium, "one full build"),
+            new(1, 10, false, "Claude edits Directory.Build.props; `dotnet build` shows the effect", Fixed(6_000, 20_000, "Claude edits it, then works through the warnings the build now shows"), Level.Medium, "one full build"),
             "set AnalysisMode=Recommended (and CodeAnalysisTreatWarningsAsErrors once the baseline exists) in Directory.Build.props"),
         new("scripts", "Type-check and lint the browser scripts", 2,
             "Type-checks and lints the site's JavaScript/TypeScript with its npm scripts.",
-            new(1, 20, false, "Node (npm run typecheck / lint), started by the .NET tool", Level.Low, "Claude reads pass/fail output", Level.Low, "seconds"),
+            new(1, 20, false, "Node (npm run typecheck / lint), started by the .NET tool", Fixed(3_000, 8_000, "Claude reads pass/fail output and fixes what it finds"), Level.Low, "seconds"),
             "configure scriptChecks in quality/quality.json, then {tool} scripts"),
         new("crawl", "Crawl the staging site (links, console errors, SEO, accessibility)", 3,
             "Walks the site's public pages in headless Chromium and reports broken links, console and network errors, SEO basics, sideways scrolling on a phone and accessibility problems (axe-core).",
-            new(4, 10, true, "Chromium (Playwright), driven by the .NET tool", Level.Low, "Claude reads the issue summary (more if there are many findings)", Level.Medium, "a headless browser (about 100-200 MB of memory; a one-time download of about 150 MB) and real traffic to the site"),
+            new(4, 10, true, "Chromium (Playwright), driven by the .NET tool", Fixed(3_000, 10_000, "Claude reads the issue summary (more if there are many findings)"), Level.Medium, "a headless browser (about 100-200 MB of memory; a one-time download of about 150 MB) and real traffic to the site"),
             "set crawl.defaultUrl, install the browser once (pwsh <tool folder>/bin/Debug/net10.0/playwright.ps1 install chromium), then {tool} crawl --max-pages 20"),
         new("browser-tests", "Add browser tests on the shared fixture", 4,
             "Adds a small project of end-to-end tests that drive a real browser through the site's main journeys, with timings tracked per scenario.",
-            new(2, 90, false, "Claude writes the C# tests; each run is Chromium (Playwright) under xUnit", Level.High, "Claude writes and debugs the scenarios: the longest job on this list", Level.High, "each browser is about 100 MB: run a few at a time, never in parallel, and watch free memory"),
+            new(2, 90, false, "Claude writes the C# tests; each run is Chromium (Playwright) under xUnit", BrowserTestsTokens, Level.High, "each browser is about 100 MB: run a few at a time, never in parallel, and watch free memory"),
             "a test project referencing src/Quality.Browser (BrowserSiteFixture, [BrowserFact]); keep runs small"),
         new("release-panel", "Show what staging and production run on the dashboard", 2,
             "Shows on the dashboard which build each environment runs and how far behind production is, with a button into the deploy console.",
-            new(0, 20, false, "Claude edits quality.json; the dashboard asks each version URL when it is drawn", Level.Low, "a small config edit", Level.None, "one web request per environment when the dashboard is built"),
+            new(0, 20, false, "Claude edits quality.json; the dashboard asks each version URL when it is drawn", Fixed(2_000, 4_000, "a small config edit"), Level.None, "one web request per environment when the dashboard is built"),
             "add a `release` block to quality/quality.json (version URLs per target and the deploy console address)"),
         new("push-timings", "Record how long each stage of the push check takes", 2,
             "Records how long each stage of the push check takes, so the dashboard can show where the wait goes.",
-            new(0, 20, false, "Claude edits tools/Deploy; the recording happens on each push", Level.Medium, "Claude edits the deploy tool and proves it with a push", Level.None, "a few milliseconds per push"),
+            new(0, 20, false, "Claude edits tools/Deploy; the recording happens on each push", Fixed(6_000, 15_000, "Claude edits the deploy tool and proves it with a push"), Level.None, "a few milliseconds per push"),
             "have the push check append to reports/check-timings.jsonl (the shared WebCore deploy engine does it by itself)"),
     ];
+
+    private static Func<SiteSize, TokenRange> Fixed(int low, int high, string why) => _ => TokenRange.Fixed(low, high, why);
+
+    /// <summary>Low: Claude skims page headings, forms and test class names. High: it reads every page and a quarter of the test code. Plus about 120 tokens a page to write and 5k of working overhead.</summary>
+    private static TokenRange FeaturesTokens(SiteSize site)
+    {
+        var write = site.Pages * 120 + 5_000;
+        return TokenRange.Fixed((int)(site.RazorTokens * 0.35 + site.TestTokens * 0.12) + write, (int)(site.RazorTokens + site.TestTokens * 0.25) + write,
+            $"Claude reads this site's {site.Pages} pages ({site.RazorBytes / 1024} KB of markup) and its tests ({site.TestBytes / 1024} KB) in part or in full and writes the list; a generator would make this ~0");
+    }
+
+    /// <summary>About one journey per three pages, each 8-18k tokens to write, run and debug.</summary>
+    private static TokenRange BrowserTestsTokens(SiteSize site)
+    {
+        var journeys = Math.Max(3, site.Pages / 3);
+        return TokenRange.Fixed(journeys * 8_000, journeys * 18_000, $"Claude writes and debugs about {journeys} journeys (one per three of this site's {site.Pages} pages): the longest job on this list");
+    }
 
     internal static IReadOnlyList<SetupStatus> Evaluate(SetupFacts facts) => Catalog.Select(item => Decided(Check(item, facts), facts.File)).ToList();
 

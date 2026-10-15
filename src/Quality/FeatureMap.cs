@@ -227,7 +227,7 @@ internal static partial class FeatureMap
         return parts.Length > 1 ? parts[1] : parts[0];
     }
 
-    private static IEnumerable<(string Path, string Relative)> Files(string root, string[] folders, string pattern, ToolConfig config)
+    internal static IEnumerable<(string Path, string Relative)> Files(string root, string[] folders, string pattern, ToolConfig config)
     {
         foreach (var folder in folders.Select(f => Path.Combine(root, f)).Where(Directory.Exists))
         {

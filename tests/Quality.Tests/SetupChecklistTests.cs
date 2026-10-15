@@ -109,4 +109,27 @@ public sealed class SetupChecklistTests : IDisposable
         Assert.Equal("shared data", SetupFile.Load(_root).Skipped["crawl"].Reason);
         Assert.NotNull(SetupFile.Load(_root).FirstRun);
     }
+
+    [Fact]
+    public void TokenEstimates_ScaleWithTheSiteAndAreShownAsAShareOfASession()
+    {
+        var small = new SiteSize(5, 40_000, 80_000);
+        var big = new SiteSize(40, 400_000, 800_000);
+        var features = SetupChecklist.Catalog.Single(i => i.Id == "features").Cost.Tokens;
+
+        Assert.True(features(big).High > features(small).High * 5);
+        Assert.Equal("~10k-50k tokens, 5-25% of a session", new TokenRange(10_000, 50_000, "x").Describe());
+        Assert.Equal("none", TokenRange.None("x").Describe());
+        Assert.Equal(Level.High, features(big).Level);
+    }
+
+    [Fact]
+    public void TheListSaysWhatTokensAreMeasuredAgainst()
+    {
+        var statuses = Evaluate();
+        var text = SetupCommand.Render(statuses, new ToolConfig(), new SiteSize(33, 200_000, 340_000), firstRun: false);
+
+        Assert.Contains("% of a session", text, StringComparison.Ordinal);
+        Assert.Contains("200k-token context window", text, StringComparison.Ordinal);
+    }
 }

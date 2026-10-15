@@ -31,7 +31,7 @@ internal static class SetupCommand
             Console.WriteLine($"Recorded: the first run was reviewed on {file.FirstRun}. quality/setup.json is committed with the baseline.");
         }
 
-        Console.WriteLine(Render(Statuses(root, config, file), config, firstRun: !SetupFile.Exists(root) && !options.Flag("--acknowledge")));
+        Console.WriteLine(Render(Statuses(root, config, file), config, SiteSize.Measure(root, config), firstRun: !SetupFile.Exists(root) && !options.Flag("--acknowledge")));
         return 0;
     }
 
@@ -48,7 +48,7 @@ internal static class SetupCommand
 
         return SetupFile.Exists(root)
             ? $"Setup: {outstanding.Count} first-run item(s) still outstanding ({string.Join(", ", outstanding.Select(s => s.Item.Id))}) - `{config.ToolCommand.TrimEnd()} setup` lists them."
-            : Render(statuses, config, firstRun: true);
+            : Render(statuses, config, SiteSize.Measure(root, config), firstRun: true);
     }
 
     private static IReadOnlyList<SetupStatus> Statuses(string root, ToolConfig config, SetupFile file) =>
@@ -70,7 +70,7 @@ internal static class SetupCommand
         return 0;
     }
 
-    internal static string Render(IReadOnlyList<SetupStatus> statuses, ToolConfig config, bool firstRun)
+    internal static string Render(IReadOnlyList<SetupStatus> statuses, ToolConfig config, SiteSize site, bool firstRun)
     {
         var outstanding = SetupChecklist.Outstanding(statuses);
         var text = new StringBuilder();
@@ -82,6 +82,11 @@ internal static class SetupCommand
         text.AppendLine(outstanding.Count == 0
             ? $"Setup: all {statuses.Count} first-run items are done, skipped on purpose or not applicable."
             : $"Setup: {outstanding.Count} of {statuses.Count} first-run items are outstanding, best value for the time first:");
+        if (outstanding.Count > 0)
+        {
+            text.AppendLine($"  Tokens are what Claude's own reading and writing would use of your session, estimated from this site's size ({site.Pages} pages, {site.RazorBytes / 1024} KB markup, {site.TestBytes / 1024} KB tests) against one {TokenRange.Session / 1000}k-token context window. Work done by the .NET tool costs none. Estimates, not measurements.");
+        }
+
         var number = 0;
         foreach (var s in outstanding)
         {
@@ -89,9 +94,13 @@ internal static class SetupCommand
             text.AppendLine($"  {++number,2}. {item.Title}   [{item.Id}]");
             text.AppendLine($"      does:    {item.What}");
             text.AppendLine($"      value {Stars(item.Benefit)}   run {Minutes(item.RunMinutes)}   set up {Minutes(item.EffortMinutes)}{(item.NeedsApproval ? "   NEEDS THE OWNER'S OK" : string.Empty)}");
+            var tokens = item.Cost.Tokens(site);
             text.AppendLine($"      runs as: {item.Cost.Engine}");
-            text.AppendLine($"      tokens:  {Label(item.Cost.Tokens)} - {item.Cost.TokensWhy}");
-            text.AppendLine($"      machine: {Label(item.Cost.Machine)} - {item.Cost.MachineWhy}");
+            text.AppendLine($"      tokens:  {Label(tokens.Level)}  {tokens.Describe()} - {tokens.Why}");
+            if (item.Cost.Machine == Level.High)
+            {
+                text.AppendLine($"      machine: HIGH - {item.Cost.MachineWhy}");
+            }
             text.AppendLine($"      why:     {s.Note}");
             text.AppendLine($"      how:     {item.How.Replace("{tool}", config.ToolCommand.TrimEnd(), StringComparison.Ordinal)}");
         }
