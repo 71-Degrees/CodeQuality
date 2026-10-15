@@ -24,9 +24,9 @@ internal static partial class FeatureGenerator
 {
     private const int LargestGroup = 4;
     private const int MostFormSteps = 4;
-    private const int MostTests = 8;
+    private const int MostTests = 4;
 
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault };
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     [GeneratedRegex("""<PageTitle>(.*?)</PageTitle>""", RegexOptions.Singleline)]
     private static partial Regex Title();
@@ -46,20 +46,21 @@ internal static partial class FeatureGenerator
     [GeneratedRegex("""<[^>]+>|@\(?[\w.\[\]]+\)?""")]
     private static partial Regex Markup();
 
-    [GeneratedRegex("""^/(error|not-?found|404)\b""", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("""^/(error|not-?found|404)\b|/(denied|forbidden)$""", RegexOptions.IgnoreCase)]
     private static partial Regex ErrorRoute();
 
     internal static async Task<GeneratedFeatures> DraftAsync(string root, ToolConfig config)
     {
         var (rows, _) = await FeatureMap.AnalyzeAsync(root, config);
         var razor = FeatureMap.ReadRazor(root, config);
-        var classes = FeatureFunctions.IndexTests(FeatureMap.ReadTests(root, config));
+        var testSources = FeatureMap.ReadTests(root, config);
+        var classes = FeatureFunctions.IndexTests(testSources);
         var existing = FeatureRegistryFile.Load(root, config.Features);
         var covered = new HashSet<string>(existing?.Functions.SelectMany(f => f.Routes).Concat(existing.NotFunctions) ?? [], StringComparer.OrdinalIgnoreCase);
         var notFunctions = rows.Select(r => r.Route).Where(r => ErrorRoute().IsMatch(r) && !covered.Contains(r)).Distinct().ToList();
         var todo = rows.Where(r => !covered.Contains(r.Route) && !notFunctions.Contains(r.Route)).ToList();
         var byRoute = rows.GroupBy(r => r.Route).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        var context = new DraftContext(byRoute, razor, classes);
+        var context = new DraftContext(byRoute, razor, classes, testSources.ToDictionary(t => t.File, t => t.Text, StringComparer.Ordinal));
         var ids = new HashSet<string>(existing?.Functions.Select(f => f.Id) ?? [], StringComparer.Ordinal);
         var functions = Groups(todo).Select(group => Draft(group, context, ids)).ToList();
         return new GeneratedFeatures(functions, notFunctions, rows.Count - todo.Count - notFunctions.Count);
@@ -78,7 +79,7 @@ internal static partial class FeatureGenerator
         return (path, proposed, drafted);
     }
 
-    private sealed record DraftContext(IReadOnlyDictionary<string, PageRow> Rows, IReadOnlyDictionary<string, string> Razor, IReadOnlyList<TestClassInfo> Classes);
+    private sealed record DraftContext(IReadOnlyDictionary<string, PageRow> Rows, IReadOnlyDictionary<string, string> Razor, IReadOnlyList<TestClassInfo> Classes, IReadOnlyDictionary<string, string> TestText);
 
     /// <summary>Pages under one route prefix are one function while they number no more than the largest group; a bigger prefix gets a function per page.</summary>
     private static IEnumerable<List<PageRow>> Groups(IEnumerable<PageRow> pages)
@@ -92,9 +93,10 @@ internal static partial class FeatureGenerator
                 continue;
             }
 
-            foreach (var page in members)
+            // Two @page lines on one file are one page reached by two addresses.
+            foreach (var sameFile in members.GroupBy(p => p.File))
             {
-                yield return [page];
+                yield return [.. sameFile];
             }
         }
     }
@@ -112,11 +114,35 @@ internal static partial class FeatureGenerator
             Who = WhoOf(lead, text),
             Steps = StepsFor(lead, text, context),
             Routes = [.. group.Select(p => p.Route)],
-            Tests = [.. group.SelectMany(p => p.Tests).Select(t => t.File).Distinct().SelectMany(file => context.Classes.Where(c => c.File == file && c.Tests.Count > 0).Select(c => c.Name)).Distinct().Take(MostTests)],
+            Tests = TestsFor(group, context),
             Notes = "Drafted from the code (page title, link text, form labels): check the name, the steps and who may do it.",
             Generated = true,
         };
     }
+
+    /// <summary>
+    /// The test classes that mention the group's pages, those named for the page's words first ("AccountFlowTests" for /account/login): a sign-in helper that visits the home page or the login page puts half the suite
+    /// on those pages, and the first few are the ones that mean it. The home page itself is named by none, because every test passes through it.
+    /// </summary>
+    private static string[] TestsFor(List<PageRow> group, DraftContext context)
+    {
+        if (group.Any(p => p.Route == "/"))
+        {
+            return [];
+        }
+
+        var words = group.SelectMany(p => p.Route.Split('/', '-')).Where(w => w.Length >= 4 && !w.StartsWith('{')).Select(w => w.ToLowerInvariant()).ToList();
+        var candidates = group.SelectMany(p => p.Tests).Select(t => t.File).Distinct()
+            .SelectMany(file => context.Classes.Where(c => c.File == file && c.Tests.Count > 0)).DistinctBy(c => c.Name).ToList();
+        var routes = group.Select(p => p.Route.Split('{')[0]).ToList();
+        return [.. candidates
+            .OrderByDescending(c => Mentions(context.TestText.GetValueOrDefault(c.File) ?? string.Empty, routes))
+            .ThenByDescending(c => words.Any(w => c.Name.Contains(w, StringComparison.OrdinalIgnoreCase)))
+            .Take(MostTests).Select(c => c.Name)];
+    }
+
+    /// <summary>How often a test file names the pages: a class that is about them says their address again and again, one that merely passes through says it once.</summary>
+    private static int Mentions(string text, IReadOnlyList<string> routes) => routes.Sum(r => Regex.Count(text, "\"" + Regex.Escape(r)));
 
     private static string NameOf(PageRow page, string text)
     {
@@ -126,7 +152,8 @@ internal static partial class FeatureGenerator
         }
 
         var candidates = new[] { Title().Match(text), Heading().Match(text) }.Where(m => m.Success).Select(m => Tidy(Plain(m.Groups[1].Value)));
-        return candidates.FirstOrDefault(c => c.Length > 0 && !c.AsSpan().ContainsAny("{}$\"")) ?? Humanise(Path.GetFileNameWithoutExtension(page.File));
+        // A page that shows "Not found" for a missing item is not named for that.
+        return candidates.FirstOrDefault(c => c.Length > 0 && !c.AsSpan().ContainsAny("{}$\"") && !c.Equals("Not found", StringComparison.OrdinalIgnoreCase)) ?? Humanise(Path.GetFileNameWithoutExtension(page.File));
     }
 
     /// <summary>A title like "Strands - MyWave" is "Strands"; one that starts with the site name's dash is nothing.</summary>
@@ -155,10 +182,12 @@ internal static partial class FeatureGenerator
             steps.Add(hop);
         }
 
-        steps.AddRange(Label().Matches(text).Select(m => Plain(m.Groups[1].Value)).Where(Usable).Take(MostFormSteps - 1).Select(l => "Type " + l));
-        if (Button().Matches(text).Select(m => Plain(m.Groups[1].Value)).FirstOrDefault(Usable) is { } button)
+        steps.AddRange(Label().Matches(text).Select(m => Plain(m.Groups[1].Value)).Where(Usable).Distinct().Take(MostFormSteps - 1).Select(l => "Type " + l));
+        // The button that sends the form, not the first one on the page (a dialog's "Close" comes first).
+        var submit = Button().Matches(text).Where(m => m.Value.Contains("submit", StringComparison.OrdinalIgnoreCase)).Select(m => Plain(m.Groups[1].Value)).FirstOrDefault(Usable);
+        if (submit is not null)
         {
-            steps.Add("Click " + button);
+            steps.Add("Click " + submit);
         }
 
         return [.. steps];
@@ -184,14 +213,16 @@ internal static partial class FeatureGenerator
         // Links are written with or without the leading slash, and may carry a query or fragment.
         var bare = route.TrimStart('/');
         var brace = bare.IndexOf('{', StringComparison.Ordinal);
-        var target = brace < 0 ? "\"/?" + Regex.Escape(bare) + "(?:[?#][^\"]*)?\"" : "\"[^\"]*" + Regex.Escape(bare[..brace]);
+        // The address may open a C# interpolation ("@($"account/register?returnUrl=...")"), so it is matched as the start of the value and must end there (a quote, a query, a fragment or an interpolation).
+        var target = "\"(?:@\\(\\$\")?/?" + (brace < 0 ? Regex.Escape(bare) + "(?=[\"?#{])" : Regex.Escape(bare[..brace]));
         var link = new Regex("<(?:a|NavLink)\\b[^>]*href\\s*=\\s*" + target + "[^>]*>(.*?)</(?:a|NavLink)>", RegexOptions.Singleline | RegexOptions.IgnoreCase);
         var sources = context.Razor.Where(f => f.Key == parentFile).Concat(context.Razor.Where(f => f.Key != parentFile)).Select(f => f.Value);
         var text = sources.SelectMany(s => link.Matches(s).Select(m => Plain(m.Groups[1].Value))).FirstOrDefault(Usable);
         return text ?? "the link to " + route;
     }
 
-    private static bool Usable(string text) => text.Length is > 0 and <= 40;
+    /// <summary>Words a person could look for: not empty, not long, and not what is left of a count like "All (@n)".</summary>
+    private static bool Usable(string text) => text.Length is > 0 and <= 40 && !text.Contains("()", StringComparison.Ordinal);
 
     private static string Plain(string markup) => Regex.Replace(Markup().Replace(markup, " "), @"\s+", " ").Trim();
 

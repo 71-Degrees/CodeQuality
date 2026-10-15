@@ -67,4 +67,27 @@ public sealed class FeatureGeneratorTests : IDisposable
         Assert.DoesNotContain(drafted.Functions, f => f.Routes.Contains("/about"));
         Assert.True(drafted.AlreadyCovered >= 1);
     }
+
+    [Fact]
+    public async Task TheHomePageNamesNoTests_AndTestsNamedForThePageComeFirst()
+    {
+        Write("tests/Web.Tests/AAAHelperTests.cs", "public class AAAHelperTests\n{\n    [Fact]\n    public async Task Visits() { await Get(\"/about\"); }\n}\n");
+
+        var drafted = await FeatureGenerator.DraftAsync(_root, new ToolConfig());
+
+        Assert.Empty(drafted.Functions.Single(f => f.Routes.Contains("/")).Tests);
+        Assert.Equal("AboutTests", drafted.Functions.Single(f => f.Routes.Contains("/about")).Tests[0]);
+    }
+
+    [Fact]
+    public async Task OnlyTheSubmitButtonIsAStep_AndADeniedPageIsSetAside()
+    {
+        Write("src/Web/Pages/Dialog.razor", "@page \"/dialog\"\n<h1>Dialog</h1>\n<button type=\"button\">Close</button>\n");
+        Write("src/Web/Pages/Denied.razor", "@page \"/account/denied\"\n<h1>Not allowed</h1>\n");
+
+        var drafted = await FeatureGenerator.DraftAsync(_root, new ToolConfig());
+
+        Assert.DoesNotContain("Click Close", drafted.Functions.Single(f => f.Routes.Contains("/dialog")).Steps);
+        Assert.Contains("/account/denied", drafted.NotFunctions);
+    }
 }
