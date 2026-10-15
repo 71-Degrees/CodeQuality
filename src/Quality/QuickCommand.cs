@@ -20,7 +20,8 @@ internal static class QuickCommand
     {
         var clock = Stopwatch.StartNew();
         var since = options.Text("--since", string.Empty);
-        var files = await ChangedFiles.FindAsync(root, since.Length == 0 ? null : since);
+        var commit = options.Text("--commit", string.Empty);
+        var files = commit.Length > 0 ? await ChangedFiles.OfCommitAsync(root, commit) : await ChangedFiles.FindAsync(root, since.Length == 0 ? null : since);
         var changed = ChangedFiles.Sources(files, config);
         Console.WriteLine($"Quick check of what changed since {(since.Length == 0 ? "HEAD" : since)}: {changed.Count} C#/Razor file(s).");
         if (changed.Count == 0)
@@ -89,6 +90,11 @@ internal static class QuickCommand
             return 0;
         }
 
+        if (options.Flag("--plan"))
+        {
+            return PrintPlan(root, config, plan);
+        }
+
         var worst = 0;
         foreach (var (project, classes) in plan.ClassesByProject)
         {
@@ -102,6 +108,21 @@ internal static class QuickCommand
         }
 
         return worst;
+    }
+
+    /// <summary>--plan: says which test classes would run, of how many each project has, without running them - the number to judge a by-name selection by before trusting it as a gate.</summary>
+    private static int PrintPlan(string root, ToolConfig config, TestPlan plan)
+    {
+        var index = FeatureFunctions.IndexTests(FeatureMap.ReadTests(root, config)).Where(c => c.Tests.Count > 0).ToList();
+        foreach (var (project, classes) in plan.ClassesByProject)
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            var inProject = index.Where(c => c.Project == name).ToList();
+            var selected = inProject.Where(c => classes.Contains(c.Name)).Sum(c => c.Tests.Count);
+            Console.WriteLine($"PLAN {name}: {selected} of {inProject.Sum(c => c.Tests.Count)} tests ({classes.Count} of {inProject.Count} classes)");
+        }
+
+        return 0;
     }
 
     /// <summary>A baseline key is rule|file|member.</summary>

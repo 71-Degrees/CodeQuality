@@ -14,6 +14,13 @@ internal sealed record ChangedSource(string Relative, bool IsTest);
 /// <summary>Which source files the working tree changes, for <c>quality quick</c>: what git says differs from HEAD (staged, unstaged and new files), or from a given commit (<c>--since origin/master</c>).</summary>
 internal static class ChangedFiles
 {
+    /// <summary>The files one commit changed (<c>--commit</c>): for judging how much a by-name selection would have run for that change alone.</summary>
+    internal static async Task<IReadOnlyList<string>> OfCommitAsync(string root, string commit)
+    {
+        var diff = await Shell.RunAsync("git", $"diff --name-only --diff-filter=ACMR {Quoted(commit)}^ {Quoted(commit)}", root, 60);
+        return diff.Output.Split('\n').Select(line => line.Trim().Replace('\\', '/')).Where(line => line.Length > 0).ToList();
+    }
+
     /// <summary>Paths relative to the repository root, forward slashes. Deleted files are left out (there is nothing to check), renames count as the new name.</summary>
     internal static async Task<IReadOnlyList<string>> FindAsync(string root, string? since)
     {
