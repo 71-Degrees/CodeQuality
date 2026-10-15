@@ -35,7 +35,8 @@ internal static class QuickCommand
             Console.WriteLine($"  {(file.IsTest ? "test  " : "source")} {file.Relative}");
         }
 
-        var worst = SmellsOfChanged(root, options, config, changed);
+        // --no-smells: the push check already ran the whole-repository smells ratchet, so only the tests are wanted here.
+        var worst = options.Flag("--no-smells") ? 0 : SmellsOfChanged(root, options, config, changed);
         if (!options.Flag("--no-tests"))
         {
             worst = Math.Max(worst, await TestsOfChanged(root, options, config, changed));
