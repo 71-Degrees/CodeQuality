@@ -80,6 +80,9 @@ public sealed class ToolConfig
     /// <summary>Settings for the feature map (<c>quality features</c>): what needs a signed-in visitor. Absent: everything counts as public.</summary>
     public FeatureSettings? Features { get; init; }
 
+    /// <summary>How the generated browser tests start and sign in to the site (<c>quality browser --generate</c>). Absent: nothing can be generated.</summary>
+    public BrowserSettings? Browser { get; init; }
+
     /// <summary>Analyzer rules to leave out of the report, each with the reason, added to the built-in list.</summary>
     public Dictionary<string, string> IgnoredAnalyzerRules { get; init; } = new();
 
