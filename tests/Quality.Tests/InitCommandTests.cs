@@ -63,6 +63,7 @@ public sealed class InitCommandTests : IDisposable
     {
         Directory.CreateDirectory(Path.Combine(_root, "src"));
         File.WriteAllText(Path.Combine(_root, "src", "Index.razor"), "@page \"/\"\n<h1>Home</h1>\n");
+        File.WriteAllText(Path.Combine(_root, "src", "Web.csproj"), "<Project Sdk=\"Microsoft.NET.Sdk.Web\" />");
         var config = new ToolConfig();
 
         Assert.Equal(0, await InitCommand.RunAsync(_root, config));
@@ -70,6 +71,7 @@ public sealed class InitCommandTests : IDisposable
         Assert.Contains("reports/", Read(".gitignore"), StringComparison.Ordinal);
         Assert.Contains("AnalysisMode", Read("Directory.Build.props"), StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(_root, "quality", "features.json")));
+        Assert.True(File.Exists(Path.Combine(_root, "tests", Path.GetFileName(_root).Replace("-", string.Empty) + ".Browser.Tests", "Journeys.cs")));
         var again = SetupChecklist.Evaluate(new SetupFacts(_root, config, new Collected(), null, SetupFile.Load(_root)));
         Assert.All(again.Where(s => s.Item.Id is "reports-ignored" or "analyzers-on" or "features"), s => Assert.Equal(SetupState.Done, s.State));
     }

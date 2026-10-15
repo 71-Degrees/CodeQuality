@@ -20,6 +20,7 @@ internal static class InitCommand
         ["reports-ignored"] = (root, _) => Task.FromResult(IgnoreReports(root)),
         ["analyzers-on"] = (root, config) => Task.FromResult(SwitchAnalyzersOn(root, config)),
         ["features"] = GenerateFeaturesAsync,
+        ["browser-tests"] = (root, config) => Task.FromResult(GenerateBrowserTests(root, config)),
     };
 
     /// <summary>Accepting a baseline is the owner's call, so these two run only when asked for with <c>--accept-baselines</c> (a brand-new repository has almost nothing to accept).</summary>
@@ -35,7 +36,7 @@ internal static class InitCommand
         var facts = new SetupFacts(root, config, Collected.Load(root), TestResults.Read(root, config), file);
         var outstanding = SetupChecklist.Outstanding(SetupChecklist.Evaluate(facts));
         var did = 0;
-        foreach (var status in outstanding)
+        foreach (var status in outstanding.OrderBy(s => s.Item.Id == "browser-tests" ? 1 : 0))   // the browser tests are drawn from the feature list, so it comes first
         {
             var step = Steps.GetValueOrDefault(status.Item.Id) ?? (acceptBaselines ? OnRequest.GetValueOrDefault(status.Item.Id) : null);
             if (step is null)
@@ -86,6 +87,12 @@ internal static class InitCommand
 
         File.WriteAllText(path, text.Insert(close, block + Environment.NewLine + "  "));
         return "added AnalysisMode=Recommended to Directory.Build.props";
+    }
+
+    private static string GenerateBrowserTests(string root, ToolConfig config)
+    {
+        var (ok, message) = BrowserCommand.Generate(root, config);
+        return ok ? message + " (add the project to the solution: dotnet sln add)" : "not generated - " + message;
     }
 
     internal static string AcceptSmells(string root, ToolConfig config)
