@@ -85,10 +85,15 @@ internal static class SetupCommand
         var number = 0;
         foreach (var s in outstanding)
         {
-            text.AppendLine($"  {++number,2}. {s.Item.Title}");
-            text.AppendLine($"      value {Stars(s.Item.Benefit)}   run {Minutes(s.Item.RunMinutes)}   set up {Minutes(s.Item.EffortMinutes)}{(s.Item.NeedsApproval ? "   NEEDS THE OWNER'S OK" : string.Empty)}   [{s.Item.Id}]");
-            text.AppendLine($"      why: {s.Note}");
-            text.AppendLine($"      how: {s.Item.How}");
+            var item = s.Item;
+            text.AppendLine($"  {++number,2}. {item.Title}   [{item.Id}]");
+            text.AppendLine($"      does:    {item.What}");
+            text.AppendLine($"      value {Stars(item.Benefit)}   run {Minutes(item.RunMinutes)}   set up {Minutes(item.EffortMinutes)}{(item.NeedsApproval ? "   NEEDS THE OWNER'S OK" : string.Empty)}");
+            text.AppendLine($"      runs as: {item.Cost.Engine}");
+            text.AppendLine($"      tokens:  {Label(item.Cost.Tokens)} - {item.Cost.TokensWhy}");
+            text.AppendLine($"      machine: {Label(item.Cost.Machine)} - {item.Cost.MachineWhy}");
+            text.AppendLine($"      why:     {s.Note}");
+            text.AppendLine($"      how:     {item.How.Replace("{tool}", config.ToolCommand.TrimEnd(), StringComparison.Ordinal)}");
         }
 
         foreach (var s in statuses.Where(s => s.State is SetupState.Skipped or SetupState.NotApplicable))
@@ -104,6 +109,9 @@ internal static class SetupCommand
 
         return text.ToString().TrimEnd();
     }
+
+    /// <summary>"none", "LOW", "MEDIUM", "HIGH": capitals for anything that costs something, so a glance finds the expensive ones.</summary>
+    private static string Label(Level level) => level == Level.None ? "none" : level.ToString().ToUpperInvariant();
 
     private static string Stars(int benefit) => new string('*', benefit).PadRight(5, '.');
 

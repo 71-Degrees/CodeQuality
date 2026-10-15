@@ -20,12 +20,31 @@ internal enum SetupState
     Skipped,
 }
 
+/// <summary>How much of something a step uses: nothing, a little, a fair amount, a lot.</summary>
+internal enum Level
+{
+    None,
+    Low,
+    Medium,
+    High,
+}
+
 /// <summary>
-/// One thing a site does once, when it first gets Code Quality. <see cref="Benefit"/> is 1-5 (what it tells you or prevents), <see cref="RunMinutes"/> the machine time to run it,
-/// <see cref="EffortMinutes"/> the person-or-Claude time to set it up, <see cref="NeedsApproval"/> true when running it touches something outside the repository (real traffic to a site)
-/// so it waits for the owner's OK.
+/// What a step costs. <see cref="RunMinutes"/> is machine time to run it and <see cref="EffortMinutes"/> the time to set it up (Claude's or the owner's); <see cref="NeedsApproval"/> is true when running it
+/// touches something outside the repository (real traffic to a site), so it waits for the owner's OK. <see cref="Engine"/> says what executes the bulk of the work - a .NET tool, Node, a browser, or Claude editing
+/// files - <see cref="Tokens"/> how much Claude's own reading, writing and thinking it takes (the part that burns tokens), and <see cref="Machine"/> how hard it is on the computer; each with its reason.
 /// </summary>
-internal sealed record SetupItem(string Id, string Title, int Benefit, int RunMinutes, int EffortMinutes, bool NeedsApproval, string How);
+internal sealed record SetupCost(int RunMinutes, int EffortMinutes, bool NeedsApproval, string Engine, Level Tokens, string TokensWhy, Level Machine, string MachineWhy);
+
+/// <summary>One thing a site does once, when it first gets Code Quality. <see cref="Benefit"/> is 1-5 (what it tells you or prevents); <see cref="How"/> may contain {tool}, replaced by the site's tool command.</summary>
+internal sealed record SetupItem(string Id, string Title, int Benefit, string What, SetupCost Cost, string How)
+{
+    public bool NeedsApproval => Cost.NeedsApproval;
+
+    public int RunMinutes => Cost.RunMinutes;
+
+    public int EffortMinutes => Cost.EffortMinutes;
+}
 
 internal sealed record SetupStatus(SetupItem Item, SetupState State, string Note);
 
@@ -51,34 +70,64 @@ internal sealed record SkipNote(string Reason, string At);
 internal sealed record SetupFacts(string Root, ToolConfig Config, Collected Collected, TestSummary? Tests, SetupFile File);
 
 /// <summary>
-/// The first-run checklist: every once-per-site thing Code Quality can do (the baselines, the push-gate wiring, coverage, the feature map, the crawl, the scripts check, browser tests, the release panel,
-/// push timings), each worked out from the repository's own state - nothing to remember to tick - and ranked: free value first, anything that needs the owner's OK last.
+/// The first-run checklist: every once-per-site thing Code Quality can do, each worked out from the repository's own state - nothing to remember to tick - and ranked: free value first, anything that needs the
+/// owner's OK last. The catalogue is data (what each step does and costs); <see cref="Evaluate"/> decides which are done.
 /// </summary>
 internal static class SetupChecklist
 {
-    private static string Tool(ToolConfig config) => config.ToolCommand.TrimEnd();
+    internal static readonly IReadOnlyList<SetupItem> Catalog =
+    [
+        new("baseline", "Accept the smells baseline", 5,
+            "Runs the smell scan over every C# and Razor file and records today's findings as the accepted starting point (quality/baseline.json); from then on only NEW or WORSE findings fail.",
+            new(1, 2, false, ".NET tool (CodeQuality; no build)", Level.Low, "Claude reads the findings summary and asks before accepting them", Level.Low, "a Roslyn read of the source: seconds, no build"),
+            "{tool} smells --update-baseline   (read the findings first; accepting them is the owner's call)"),
+        new("analyzer-baseline", "Accept the .NET analyzer baseline", 4,
+            "Builds the whole solution into a scratch folder with the .NET analyzers at Recommended and records the warnings as accepted, the same way.",
+            new(2, 2, false, ".NET tool driving `dotnet build`", Level.Low, "Claude reads a per-rule summary", Level.Medium, "a full build: CPU and disk for about a minute"),
+            "{tool} analyzers --update-baseline"),
+        new("gate", "Run the smells ratchet in the push gate", 5,
+            "Adds a smells step to the repository's pre-push check, so a push with new or worse findings is refused instead of discovered later.",
+            new(0, 15, false, "Claude edits C# in tools/Deploy; the check itself is the .NET tool", Level.Medium, "Claude reads the existing pattern, writes a small class and proves it with a test and a push", Level.Low, "one build and one test run to prove it"),
+            "add the smells step to the repository's pre-push check (it fails on NEW or WORSE findings only); see tools/Deploy/QualityChecks.cs in MyWave"),
+        new("reports-ignored", "Keep reports/ out of git", 1,
+            "Adds `reports/` to .gitignore so the generated reports never get committed.",
+            new(0, 1, false, "Claude edits one file", Level.None, "a one-line edit", Level.None, "nothing runs"),
+            "add `reports/` to .gitignore"),
+        new("tests-coverage", "Measure the tests and their coverage", 4,
+            "Runs every test project with the coverage collector and records pass/fail counts and line coverage per project folder, for the report and the trend.",
+            new(3, 1, false, ".NET (`dotnet test`, started by the CodeQuality tool)", Level.Low, "Claude reads a one-screen summary", Level.Medium, "builds and runs every test: CPU for about as long as the repository's full test suite"),
+            "{tool} tests"),
+        new("features", "Draw the feature map and list the site's functions", 4,
+            "Draws a map of every page (clicks from the home page, which tests mention it, whether the crawler reaches it), then Claude writes quality/features.json: the site's functions, who may do each, its pages and its tests.",
+            new(1, 40, false, "map: .NET tool; features.json: Claude authoring", Level.High, "Claude reads the pages and tests and writes a long curated list - the biggest token spend on this list", Level.Low, "the map is seconds, no build"),
+            "{tool} features --no-open, then write quality/features.json (what a person does, who may, which pages, which tests)"),
+        new("analyzers-on", "Switch the analyzers on in Directory.Build.props", 3,
+            "Turns the .NET analyzers on in every build (AnalysisMode=Recommended), so warnings show as you code instead of only when asked.",
+            new(1, 10, false, "Claude edits Directory.Build.props; `dotnet build` shows the effect", Level.Medium, "Claude edits it, then works through the warnings the build now shows", Level.Medium, "one full build"),
+            "set AnalysisMode=Recommended (and CodeAnalysisTreatWarningsAsErrors once the baseline exists) in Directory.Build.props"),
+        new("scripts", "Type-check and lint the browser scripts", 2,
+            "Type-checks and lints the site's JavaScript/TypeScript with its npm scripts.",
+            new(1, 20, false, "Node (npm run typecheck / lint), started by the .NET tool", Level.Low, "Claude reads pass/fail output", Level.Low, "seconds"),
+            "configure scriptChecks in quality/quality.json, then {tool} scripts"),
+        new("crawl", "Crawl the staging site (links, console errors, SEO, accessibility)", 3,
+            "Walks the site's public pages in headless Chromium and reports broken links, console and network errors, SEO basics, sideways scrolling on a phone and accessibility problems (axe-core).",
+            new(4, 10, true, "Chromium (Playwright), driven by the .NET tool", Level.Low, "Claude reads the issue summary (more if there are many findings)", Level.Medium, "a headless browser (about 100-200 MB of memory; a one-time download of about 150 MB) and real traffic to the site"),
+            "set crawl.defaultUrl, install the browser once (pwsh <tool folder>/bin/Debug/net10.0/playwright.ps1 install chromium), then {tool} crawl --max-pages 20"),
+        new("browser-tests", "Add browser tests on the shared fixture", 4,
+            "Adds a small project of end-to-end tests that drive a real browser through the site's main journeys, with timings tracked per scenario.",
+            new(2, 90, false, "Claude writes the C# tests; each run is Chromium (Playwright) under xUnit", Level.High, "Claude writes and debugs the scenarios: the longest job on this list", Level.High, "each browser is about 100 MB: run a few at a time, never in parallel, and watch free memory"),
+            "a test project referencing src/Quality.Browser (BrowserSiteFixture, [BrowserFact]); keep runs small"),
+        new("release-panel", "Show what staging and production run on the dashboard", 2,
+            "Shows on the dashboard which build each environment runs and how far behind production is, with a button into the deploy console.",
+            new(0, 20, false, "Claude edits quality.json; the dashboard asks each version URL when it is drawn", Level.Low, "a small config edit", Level.None, "one web request per environment when the dashboard is built"),
+            "add a `release` block to quality/quality.json (version URLs per target and the deploy console address)"),
+        new("push-timings", "Record how long each stage of the push check takes", 2,
+            "Records how long each stage of the push check takes, so the dashboard can show where the wait goes.",
+            new(0, 20, false, "Claude edits tools/Deploy; the recording happens on each push", Level.Medium, "Claude edits the deploy tool and proves it with a push", Level.None, "a few milliseconds per push"),
+            "have the push check append to reports/check-timings.jsonl (the shared WebCore deploy engine does it by itself)"),
+    ];
 
-    internal static IReadOnlyList<SetupStatus> Evaluate(SetupFacts facts)
-    {
-        var baseline = Baseline.Load(facts.Root).Entries.Keys.ToList();
-        var statuses = new List<SetupStatus>
-        {
-            Of(Item("baseline", "Accept the smells baseline", 5, 1, 2, false, $"{Tool(facts.Config)} smells --update-baseline   (read the findings first; accepting them is the owner's call)"), baseline.Any(k => !k.StartsWith("build/", StringComparison.Ordinal)), "quality/baseline.json has no smell entries yet"),
-            Of(Item("analyzer-baseline", "Accept the .NET analyzer baseline", 4, 2, 2, false, $"{Tool(facts.Config)} analyzers --update-baseline"), baseline.Any(k => k.StartsWith("build/", StringComparison.Ordinal)) || facts.Collected.Analyzers.Count > 0, "the analyzers have never been run"),
-            Of(Item("gate", "Run the smells ratchet in the push gate", 5, 0, 15, false, "add the smells step to the repository's pre-push check (it fails on NEW or WORSE findings only); see tools/Deploy/QualityChecks.cs in MyWave"), GateWired(facts.Root), "nothing in tools/Deploy runs CodeQuality, so new smells reach the remote"),
-            Of(Item("reports-ignored", "Keep reports/ out of git", 1, 0, 1, false, "add `reports/` to .gitignore"), GitIgnoresReports(facts.Root), ".gitignore does not list reports/"),
-            Of(Item("tests-coverage", "Measure the tests and their coverage", 4, 3, 1, false, $"{Tool(facts.Config)} tests"), facts.Tests is { Coverage.Count: > 0 }, "no coverage results under reports/test-results"),
-            Of(Item("features", "Draw the feature map and list the site's functions", 4, 1, 40, false, $"{Tool(facts.Config)} features --no-open, then write quality/features.json (what a person does, who may, which pages, which tests)"), File.Exists(Path.Combine(facts.Root, facts.Config.Features?.Registry ?? "quality/features.json")), "no quality/features.json, so the dashboard's feature-coverage chart has nothing to draw"),
-            Of(Item("analyzers-on", "Switch the analyzers on in Directory.Build.props", 3, 1, 10, false, "set AnalysisMode=Recommended (and CodeAnalysisTreatWarningsAsErrors once the baseline exists) in Directory.Build.props"), AnalyzersOn(facts.Root), "the analyzers only run when asked, not in every build"),
-            Scripts(facts),
-            Crawl(facts),
-            Of(Item("browser-tests", "Add browser tests on the shared fixture", 4, 2, 90, false, "a test project referencing src/Quality.Browser (BrowserSiteFixture, [BrowserFact]); keep runs small - each browser is about 100 MB"), BrowserTests(facts), "no browser tests, so nothing walks the site the way a person does"),
-            ReleasePanel(facts),
-            Of(Item("push-timings", "Record how long each stage of the push check takes", 2, 0, 20, false, "have the push check append to reports/check-timings.jsonl (the shared WebCore deploy engine does it by itself)"), File.Exists(Path.Combine(Repo.OutputRoot(facts.Root), "reports", "check-timings.jsonl")), "reports/check-timings.jsonl does not exist"),
-        };
-
-        return statuses.Select(s => Decided(s, facts.File)).ToList();
-    }
+    internal static IReadOnlyList<SetupStatus> Evaluate(SetupFacts facts) => Catalog.Select(item => Decided(Check(item, facts), facts.File)).ToList();
 
     /// <summary>Best first: what is not waiting for approval, then value for the time it takes.</summary>
     internal static IReadOnlyList<SetupStatus> Outstanding(IEnumerable<SetupStatus> statuses) =>
@@ -87,7 +136,26 @@ internal static class SetupChecklist
             .ThenByDescending(s => s.Item.Benefit * 60.0 / (s.Item.RunMinutes + s.Item.EffortMinutes + 2))
             .ToList();
 
-    private static SetupItem Item(string id, string title, int benefit, int run, int effort, bool approval, string how) => new(id, title, benefit, run, effort, approval, how);
+    private static SetupStatus Check(SetupItem item, SetupFacts facts)
+    {
+        var baseline = Baseline.Load(facts.Root).Entries.Keys.ToList();
+        return item.Id switch
+        {
+            "baseline" => Of(item, baseline.Any(k => !k.StartsWith("build/", StringComparison.Ordinal)), "quality/baseline.json has no smell entries yet"),
+            "analyzer-baseline" => Of(item, baseline.Any(k => k.StartsWith("build/", StringComparison.Ordinal)) || facts.Collected.Analyzers.Count > 0, "the analyzers have never been run"),
+            "gate" => Of(item, GateWired(facts.Root), "nothing in tools/Deploy runs CodeQuality, so new smells reach the remote"),
+            "reports-ignored" => Of(item, GitIgnoresReports(facts.Root), ".gitignore does not list reports/"),
+            "tests-coverage" => Of(item, facts.Tests is { Coverage.Count: > 0 }, "no coverage results under reports/test-results"),
+            "features" => Of(item, File.Exists(Path.Combine(facts.Root, facts.Config.Features?.Registry ?? "quality/features.json")), "no quality/features.json, so the dashboard's feature-coverage chart has nothing to draw"),
+            "analyzers-on" => Of(item, AnalyzersOn(facts.Root), "the analyzers only run when asked, not in every build"),
+            "scripts" => Scripts(item, facts),
+            "crawl" => Of(item, facts.Collected.Crawl is not null, string.IsNullOrWhiteSpace(facts.Config.Crawl.DefaultUrl) ? "no crawl.defaultUrl in quality/quality.json yet" : $"never run against {facts.Config.Crawl.DefaultUrl}"),
+            "browser-tests" => Of(item, BrowserTests(facts), "no browser tests, so nothing walks the site the way a person does"),
+            "release-panel" => ReleasePanel(item, facts),
+            "push-timings" => Of(item, File.Exists(Path.Combine(Repo.OutputRoot(facts.Root), "reports", "check-timings.jsonl")), "reports/check-timings.jsonl does not exist"),
+            _ => new SetupStatus(item, SetupState.NotApplicable, "unknown item"),
+        };
+    }
 
     private static SetupStatus Of(SetupItem item, bool done, string missingNote) =>
         new(item, done ? SetupState.Done : SetupState.Missing, done ? string.Empty : missingNote);
@@ -97,27 +165,13 @@ internal static class SetupChecklist
             ? status with { State = SetupState.Skipped, Note = $"skipped {skip.At}: {skip.Reason}" }
             : status;
 
-    private static SetupStatus Scripts(SetupFacts facts)
-    {
-        var item = Item("scripts", "Type-check and lint the browser scripts", 2, 1, 20, false, $"configure scriptChecks in quality/quality.json, then {Tool(facts.Config)} scripts");
-        if (!File.Exists(Path.Combine(facts.Root, "package.json")))
-        {
-            return new SetupStatus(item, SetupState.NotApplicable, "no package.json: no npm project to check");
-        }
+    private static SetupStatus Scripts(SetupItem item, SetupFacts facts) =>
+        !File.Exists(Path.Combine(facts.Root, "package.json"))
+            ? new SetupStatus(item, SetupState.NotApplicable, "no package.json: no npm project to check")
+            : Of(item, facts.Config.ScriptChecks.Length > 0 && facts.Collected.Scripts is not null, "scriptChecks is empty or has never run");
 
-        return Of(item, facts.Config.ScriptChecks.Length > 0 && facts.Collected.Scripts is not null, "scriptChecks is empty or has never run");
-    }
-
-    private static SetupStatus Crawl(SetupFacts facts)
+    private static SetupStatus ReleasePanel(SetupItem item, SetupFacts facts)
     {
-        var item = Item("crawl", "Crawl the staging site (links, console errors, SEO, accessibility)", 3, 4, 10, true, $"set crawl.defaultUrl, install the browser once (pwsh <tool folder>/bin/Debug/net10.0/playwright.ps1 install chromium), then {Tool(facts.Config)} crawl --max-pages 20 - real traffic to the site, so it waits for the owner's OK");
-        var url = facts.Config.Crawl.DefaultUrl;
-        return Of(item, facts.Collected.Crawl is not null, string.IsNullOrWhiteSpace(url) ? "no crawl.defaultUrl in quality/quality.json yet" : $"never run against {url}");
-    }
-
-    private static SetupStatus ReleasePanel(SetupFacts facts)
-    {
-        var item = Item("release-panel", "Show what staging and production run on the dashboard", 2, 0, 20, false, "add a `release` block to quality/quality.json (version URLs per target and the deploy console address)");
         var hasTargets = File.Exists(Path.Combine(facts.Root, "tools", "Deploy", "targets.json")) || File.Exists(Path.Combine(facts.Root, "deploy", "deploy.json"));
         return hasTargets
             ? Of(item, facts.Config.Release is not null, "the repository deploys somewhere but the dashboard does not show where")
@@ -130,7 +184,8 @@ internal static class SetupChecklist
         var deploy = Path.Combine(root, "tools", "Deploy");
         return Directory.Exists(deploy) && Directory.EnumerateFiles(deploy, "*.*", SearchOption.TopDirectoryOnly)
             .Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-            .Any(p => File.ReadAllText(p).Contains("CodeQuality", StringComparison.Ordinal) || File.ReadAllText(p).Contains("WebCore.Deploy", StringComparison.Ordinal));
+            .Select(File.ReadAllText)
+            .Any(text => text.Contains("CodeQuality", StringComparison.Ordinal) || text.Contains("WebCore.Deploy", StringComparison.Ordinal));
     }
 
     private static bool GitIgnoresReports(string root) =>
