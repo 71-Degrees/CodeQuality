@@ -1,6 +1,6 @@
 ---
 name: code-quality
-description: Run, read and act on the 71 Degrees CodeQuality tooling (Roslyn code smells, .NET analyzers, baseline ratchet, quality timeline, HTML report, site crawler, Roslyn refactor tool) in a site repository, or set it up in a new site. Invoke when the user asks for the quality report or the quality check, wants to know where quality stands (start vs now), is about to start or just finished a large refactor or feature, asks to apply mechanical refactors or analyzer fixes, wants to crawl the site for accessibility/SEO/broken links, or wants CodeQuality added to another website.
+description: Run, read and act on the 71 Degrees CodeQuality tooling (Roslyn code smells, .NET analyzers, baseline ratchet, quality timeline, HTML report, site crawler, Roslyn refactor tool) in a site repository, or set it up in a new site. Invoke when the user asks for the quality report or the quality check, wants to know where quality stands (start vs now), is about to start or just finished a large refactor or feature, asks to apply mechanical refactors or analyzer fixes, wants to crawl the site for accessibility/SEO/broken links, or wants CodeQuality added to another website. Also use its `quick` command (smells of only the git-changed files plus only the tests that mention them) between edits in a small iteration, after a compile; the full run is the push gate.
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
