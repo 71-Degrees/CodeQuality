@@ -5,11 +5,16 @@
  */
 
 using System.Text.RegularExpressions;
+using CodeQuality.Common;
 
 namespace CodeQuality.Quality;
 
 /// <summary>The tests worth running for a change: per test project, the test classes to run; and the changed files no test mentions at all.</summary>
-internal sealed record TestPlan(IReadOnlyDictionary<string, IReadOnlyList<string>> ClassesByProject, IReadOnlyList<string> NotMentioned);
+internal sealed record TestPlan(IReadOnlyDictionary<string, IReadOnlyList<string>> ClassesByProject, IReadOnlyList<string> NotMentioned)
+{
+    /// <summary>The functions of the site the change touches (when the site lists its functions): what a person would walk to see the change work.</summary>
+    public IReadOnlyList<FeatureFunction> Functions { get; init; } = [];
+}
 
 /// <summary>
 /// A fast guess at which tests a change can break, by name: the types a changed file declares (and a Razor page's own name) are looked for in the test projects' source, and every test
@@ -90,8 +95,79 @@ internal static partial class TestSelection
         }
     }
 
-    internal static TestPlan Plan(string root, IReadOnlyList<ChangedSource> changed, IReadOnlyList<string> testProjects, IReadOnlyList<string>? sourceFolders = null)
+    /// <summary>Names every web test mentions because it hosts the app (<c>WebApplicationFactory&lt;Program&gt;</c>): found in a test they say nothing about what it covers.</summary>
+    private static readonly HashSet<string> Ubiquitous = new(["Program"], StringComparer.Ordinal);
+
+    /// <summary>
+    /// The tests for a change, chosen by what the change is about rather than by who happens to mention it. A changed page or component stands for the addresses it draws and a changed C# file for the addresses it
+    /// names; the site's function list says which function owns each and which test classes are about it. Types a changed C# file declares still select the tests that name them (unit tests), but a test that only
+    /// passes through a page on its way somewhere else (every flow test signs in) is not selected for it. A file that reaches no function and no test is listed, not run for.
+    /// </summary>
+    internal static TestPlan PlanByFunction(string root, IReadOnlyList<ChangedSource> changed, IReadOnlyList<string> testProjects, IReadOnlyList<string> sourceFolders, FeatureRegistryFile registry)
     {
+        var wanted = changed.Where(c => !c.IsTest).Select(c => (c.Relative, Text: File.ReadAllText(Path.Combine(root, c.Relative)))).ToList();
+        var touched = new List<FeatureFunction>();
+        var reached = new HashSet<string>(StringComparer.Ordinal);
+        var addressesByFile = wanted.ToDictionary(w => w.Relative, w => AddressesOf(root, sourceFolders, w.Relative, w.Text));
+        foreach (var (file, addresses) in addressesByFile)
+        {
+            var owners = FunctionSelection.Owning(registry, addresses);
+            touched.AddRange(owners);
+            if (owners.Any(o => o.Tests.Length > 0))
+            {
+                reached.Add(file);
+            }
+        }
+
+        var functionTests = touched.SelectMany(f => f.Tests).Select(t => t.Split('.')[0]).ToHashSet(StringComparer.Ordinal);
+        var names = wanted.Where(w => w.Relative.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            .Select(w => (w.Relative, Names: DeclaredNames(w.Relative, w.Text).Where(n => !Ubiquitous.Contains(n)).ToList())).ToList();
+        var changedTests = changed.Where(c => c.IsTest).Select(c => Path.GetFullPath(Path.Combine(root, c.Relative))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var byProject = new Dictionary<string, IReadOnlyList<string>>();
+        foreach (var project in testProjects)
+        {
+            var classes = new List<string>();
+            foreach (var path in TestSources(Path.GetDirectoryName(project)!))
+            {
+                var text = File.ReadAllText(path);
+                var tests = TestClasses(text);
+                var direct = tests.Count == 0 ? [] : names.Where(n => n.Names.Any(name => Mentions(text, name))).Select(n => n.Relative).ToList();
+                if (tests.Count > 0 && (direct.Count > 0 || tests.Any(functionTests.Contains) || changedTests.Contains(Path.GetFullPath(path))))
+                {
+                    classes.AddRange(tests);
+                    reached.UnionWith(direct);
+                }
+            }
+
+            if (classes.Count > 0)
+            {
+                byProject[project] = classes.Distinct(StringComparer.Ordinal).ToList();
+            }
+        }
+
+        return new TestPlan(byProject, wanted.Select(w => w.Relative).Where(f => !reached.Contains(f)).ToList()) { Functions = touched.DistinctBy(f => f.Id).ToList() };
+    }
+
+    /// <summary>The addresses a changed file stands for: a page its own and the pages that show it (the home page counts), a C# file the routes it names.</summary>
+    private static IReadOnlyList<string> AddressesOf(string root, IReadOnlyList<string> sourceFolders, string relative, string text)
+    {
+        if (!relative.EndsWith(".razor", StringComparison.OrdinalIgnoreCase))
+        {
+            return FunctionSelection.RoutesNamed(text);
+        }
+
+        var own = PageDirective().Matches(text).Select(m => m.Groups["route"].Value.TrimEnd('/')).Select(r => r.Length == 0 ? "/" : r);
+        return [.. own.Concat(RoutesShowing(root, sourceFolders, relative)).Distinct(StringComparer.Ordinal)];
+    }
+
+    internal static TestPlan Plan(string root, IReadOnlyList<ChangedSource> changed, IReadOnlyList<string> testProjects, IReadOnlyList<string>? sourceFolders = null, FeatureRegistryFile? registry = null)
+    {
+        if (registry is not null && sourceFolders is not null)
+        {
+            return PlanByFunction(root, changed, testProjects, sourceFolders, registry);
+        }
+
         var wanted = changed.Where(c => !c.IsTest)
             .Select(c => (c.Relative, Names: DeclaredNames(c.Relative, File.ReadAllText(Path.Combine(root, c.Relative))),
                 Routes: sourceFolders is not null && c.Relative.EndsWith(".razor", StringComparison.OrdinalIgnoreCase) ? RoutesShowing(root, sourceFolders, c.Relative) : []))

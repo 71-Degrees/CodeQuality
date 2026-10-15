@@ -78,10 +78,15 @@ internal static class QuickCommand
         Console.WriteLine();
         Console.WriteLine("== Tests that mention the changed code");
         var projects = TestRunner.Projects(root, config, includeBrowser: false);
-        var plan = TestSelection.Plan(root, changed, projects, config.SourceFolders);
+        var plan = TestSelection.Plan(root, changed, projects, config.SourceFolders, FeatureRegistryFile.Load(root, config.Features));
+        foreach (var function in plan.Functions)
+        {
+            Console.WriteLine($"  function: {function.Name} ({(function.Tests.Length == 0 ? "no test is named for it" : string.Join(", ", function.Tests))}); to see it work: {(function.Steps.Length == 0 ? "no clicks listed" : string.Join(" > ", function.Steps))}{(function.Walked ? string.Empty : "  [not walked in a browser]")}");
+        }
+
         foreach (var file in plan.NotMentioned)
         {
-            Console.WriteLine($"  no test mentions anything in {file}");
+            Console.WriteLine($"  no test is about anything in {file}");
         }
 
         if (plan.ClassesByProject.Count == 0)
