@@ -39,7 +39,7 @@ using CodeQuality.Quality;
 
 internal static class Program
 {
-    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick", "setup" };
+    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick", "setup", "init" };
 
     private static async Task<int> Main(string[] args)
     {
@@ -110,6 +110,7 @@ internal static class Program
         "features" => await FeaturesCommand(root, options),
         "quick" => await QuickCommand.RunAsync(root, options, ToolConfig.Load(root)),
         "setup" => SetupCommand.Run(root, options, ToolConfig.Load(root)),
+        "init" => await InitCommand.RunAsync(root, ToolConfig.Load(root)),
         _ => null,
     };
 

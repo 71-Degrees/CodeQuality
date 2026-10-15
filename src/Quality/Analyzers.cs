@@ -27,6 +27,9 @@ internal static class Analyzers
         ["CA1711"] = "type-name suffix conventions: irrelevant for an app (not a library)",
     };
 
+    /// <summary>The rule codes a build should stay quiet about for this site: the tool's own list plus the site's <c>ignoredAnalyzerRules</c>.</summary>
+    internal static IReadOnlyList<string> IgnoredCodes(ToolConfig config) => [.. Ignored.Keys.Concat(config.IgnoredAnalyzerRules.Keys).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+
     private static readonly Regex Warning = new(@"^(?<file>[A-Za-z]:[^()]*?)\((?<line>\d+),\d+\): warning (?<code>[A-Z]+\d+): (?<message>.*?) \[", RegexOptions.Compiled | RegexOptions.Multiline);
 
     public static async Task<(IReadOnlyList<Finding> Findings, string? Problem)> RunAsync(string root, string mode, ToolConfig config)
