@@ -36,6 +36,9 @@ public sealed class FeatureFunction
     public string[] Docs { get; init; } = [];
 
     public string? Notes { get; init; }
+
+    /// <summary>True for an entry <c>quality features --generate</c> drafted from the code and nobody has reviewed yet; a person clears it (or deletes the property) once the name, steps and notes are right.</summary>
+    public bool Generated { get; init; }
 }
 
 /// <summary>The curated list of functions (<c>quality/features.json</c>), and the pages that are deliberately not a function (the error page).</summary>

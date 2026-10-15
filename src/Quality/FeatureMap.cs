@@ -215,10 +215,10 @@ internal static partial class FeatureMap
 
     // ---- reading the source ----
 
-    private static Dictionary<string, string> ReadRazor(string root, ToolConfig config) =>
+    internal static Dictionary<string, string> ReadRazor(string root, ToolConfig config) =>
         Files(root, config.SourceFolders, "*.razor", config).ToDictionary(f => f.Relative, f => File.ReadAllText(f.Path), StringComparer.Ordinal);
 
-    private static List<(string Project, string File, string Text)> ReadTests(string root, ToolConfig config) =>
+    internal static List<(string Project, string File, string Text)> ReadTests(string root, ToolConfig config) =>
         Files(root, config.TestFolders, "*.cs", config).Select(f => (ProjectOf(f.Relative), f.Relative, File.ReadAllText(f.Path))).ToList();
 
     private static string ProjectOf(string relative)

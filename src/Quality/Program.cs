@@ -126,11 +126,32 @@ internal static class Program
     /// <summary>features: writes reports/feature-map.html (every page, clicks from the home page, the tests that mention it, whether the crawler visits it) and opens it unless --no-open.</summary>
     private static async Task<int> FeaturesCommand(string root, Options options)
     {
+        if (options.Flag("--generate"))
+        {
+            return await FeaturesGenerateAsync(root, ToolConfig.Load(root));
+        }
+
         var path = await FeatureMap.WriteAsync(root, ToolConfig.Load(root));
         Console.WriteLine($"Feature map: {path}");
         if (options.Flag("--open"))
         {
             HtmlReport.Open(path);
+        }
+
+        return 0;
+    }
+
+    /// <summary>features --generate: drafts quality/features.json from the code (no tokens), then redraws the map so what the draft covers can be read at once.</summary>
+    private static async Task<int> FeaturesGenerateAsync(string root, ToolConfig config)
+    {
+        var (path, proposed, drafted) = await FeatureGenerator.WriteAsync(root, config);
+        Console.WriteLine(proposed
+            ? $"quality/features.json already exists, so it was not touched. {drafted.Functions.Count} draft(s) for pages it does not cover: {path}"
+            : $"Drafted {drafted.Functions.Count} function(s) from the code ({drafted.NotFunctions.Count} page(s) set aside as not a function): {path}");
+        Console.WriteLine("Every drafted entry is marked \"generated\": review the names, steps and who may do each, then clear the mark.");
+        if (!proposed)
+        {
+            Console.WriteLine($"Feature map: {await FeatureMap.WriteAsync(root, config)}");
         }
 
         return 0;

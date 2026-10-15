@@ -99,9 +99,9 @@ internal static class SetupChecklist
             new(3, 1, false, ".NET (`dotnet test`, started by the CodeQuality tool)", Fixed(2_000, 4_000, "Claude reads a one-screen summary"), Level.Medium, "builds and runs every test: CPU for about as long as the repository's full test suite"),
             "{tool} tests"),
         new("features", "Draw the feature map and list the site's functions", 4,
-            "Draws a map of every page (clicks from the home page, which tests mention it, whether the crawler reaches it), then Claude writes quality/features.json: the site's functions, who may do each, its pages and its tests.",
-            new(1, 40, false, "map: .NET tool; features.json: Claude authoring", FeaturesTokens, Level.Low, "the map is seconds, no build"),
-            "{tool} features --no-open, then write quality/features.json (what a person does, who may, which pages, which tests)"),
+            "Draws a map of every page (clicks from the home page, which tests mention it, whether the crawler reaches it) and drafts quality/features.json from the code: the site's functions, who may do each, the steps, the pages and the tests. Drafted entries are marked generated until someone reviews them.",
+            new(1, 15, false, "the .NET tool drafts it (`features --generate`); Claude or you only review the draft", FeaturesTokens, Level.Low, "the map and the draft are seconds, no build"),
+            "{tool} features --generate (writes quality/features.json, or quality/features-proposed.json beside an existing list), then review the names, steps and who may do each and clear the generated mark"),
         new("analyzers-on", "Switch the analyzers on in Directory.Build.props", 3,
             "Turns the .NET analyzers on in every build (AnalysisMode=Recommended), so warnings show as you code instead of only when asked.",
             new(1, 10, false, "Claude edits Directory.Build.props; `dotnet build` shows the effect", Fixed(6_000, 20_000, "Claude edits it, then works through the warnings the build now shows"), Level.Medium, "one full build"),
@@ -130,13 +130,10 @@ internal static class SetupChecklist
 
     private static Func<SiteSize, TokenRange> Fixed(int low, int high, string why) => _ => TokenRange.Fixed(low, high, why);
 
-    /// <summary>Low: Claude skims page headings, forms and test class names. High: it reads every page and a quarter of the test code. Plus about 120 tokens a page to write and 5k of working overhead.</summary>
-    private static TokenRange FeaturesTokens(SiteSize site)
-    {
-        var write = site.Pages * 120 + 5_000;
-        return TokenRange.Fixed((int)(site.RazorTokens * 0.35 + site.TestTokens * 0.12) + write, (int)(site.RazorTokens + site.TestTokens * 0.25) + write,
-            $"Claude reads this site's {site.Pages} pages ({site.RazorBytes / 1024} KB of markup) and its tests ({site.TestBytes / 1024} KB) in part or in full and writes the list; a generator would make this ~0");
-    }
+    /// <summary>The draft costs nothing; what costs is reading it (about 150-400 tokens a page) and fixing the names and steps, plus 2-4k of overhead. Writing the list by hand instead would cost 35-80% more of the markup and tests read in.</summary>
+    private static TokenRange FeaturesTokens(SiteSize site) =>
+        TokenRange.Fixed(site.Pages * 150 + 2_000, site.Pages * 400 + 4_000,
+            $"the draft costs none; Claude only reads and corrects it ({site.Pages} pages). Writing it by hand would read ~{site.RazorTokens / 1000}k tokens of markup and ~{site.TestTokens / 1000}k of tests first");
 
     /// <summary>About one journey per three pages, each 8-18k tokens to write, run and debug.</summary>
     private static TokenRange BrowserTestsTokens(SiteSize site)
@@ -165,6 +162,15 @@ internal static class SetupChecklist
             "reports-ignored" => Of(item, GitIgnoresReports(facts.Root), ".gitignore does not list reports/"),
             "tests-coverage" => Of(item, facts.Tests is { Coverage.Count: > 0 }, "no coverage results under reports/test-results"),
             "features" => Of(item, File.Exists(Path.Combine(facts.Root, facts.Config.Features?.Registry ?? "quality/features.json")), "no quality/features.json, so the dashboard's feature-coverage chart has nothing to draw"),
+            _ => CheckSite(item, facts),
+        };
+    }
+
+    /// <summary>The checks about how the site is set up (build props, scripts, crawl, browser tests, deploy), apart from the quality tool's own records.</summary>
+    private static SetupStatus CheckSite(SetupItem item, SetupFacts facts)
+    {
+        return item.Id switch
+        {
             "analyzers-on" => Of(item, AnalyzersOn(facts.Root), "the analyzers only run when asked, not in every build"),
             "scripts" => Scripts(item, facts),
             "crawl" => Of(item, facts.Collected.Crawl is not null, string.IsNullOrWhiteSpace(facts.Config.Crawl.DefaultUrl) ? "no crawl.defaultUrl in quality/quality.json yet" : $"never run against {facts.Config.Crawl.DefaultUrl}"),
