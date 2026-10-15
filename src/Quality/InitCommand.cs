@@ -22,15 +22,28 @@ internal static class InitCommand
         ["features"] = GenerateFeaturesAsync,
     };
 
-    internal static async Task<int> RunAsync(string root, ToolConfig config)
+    /// <summary>Accepting a baseline is the owner's call, so these two run only when asked for with <c>--accept-baselines</c> (a brand-new repository has almost nothing to accept).</summary>
+    private static readonly IReadOnlyDictionary<string, Func<string, ToolConfig, Task<string>>> OnRequest = new Dictionary<string, Func<string, ToolConfig, Task<string>>>(StringComparer.Ordinal)
+    {
+        ["baseline"] = (root, config) => Task.FromResult(AcceptSmells(root, config)),
+        ["analyzer-baseline"] = AcceptAnalyzersAsync,
+    };
+
+    internal static async Task<int> RunAsync(string root, ToolConfig config, bool acceptBaselines = false)
     {
         var file = SetupFile.Load(root);
         var facts = new SetupFacts(root, config, Collected.Load(root), TestResults.Read(root, config), file);
         var outstanding = SetupChecklist.Outstanding(SetupChecklist.Evaluate(facts));
         var did = 0;
-        foreach (var status in outstanding.Where(s => Steps.ContainsKey(s.Item.Id)))
+        foreach (var status in outstanding)
         {
-            Console.WriteLine($"  {status.Item.Id,-16} {await Steps[status.Item.Id](root, config)}");
+            var step = Steps.GetValueOrDefault(status.Item.Id) ?? (acceptBaselines ? OnRequest.GetValueOrDefault(status.Item.Id) : null);
+            if (step is null)
+            {
+                continue;
+            }
+
+            Console.WriteLine($"  {status.Item.Id,-16} {await step(root, config)}");
             did++;
         }
 
@@ -73,6 +86,47 @@ internal static class InitCommand
 
         File.WriteAllText(path, text.Insert(close, block + Environment.NewLine + "  "));
         return "added AnalysisMode=Recommended to Directory.Build.props";
+    }
+
+    internal static string AcceptSmells(string root, ToolConfig config)
+    {
+        var findings = Smells.Scan(root, includeTests: false, config);
+        Accept(root, findings, key => !key.StartsWith("build/", StringComparison.Ordinal));
+        return $"accepted {findings.Count} smell finding(s) as the baseline";
+    }
+
+    private static async Task<string> AcceptAnalyzersAsync(string root, ToolConfig config)
+    {
+        (IReadOnlyList<Finding> findings, string? problem) result;
+        try
+        {
+            result = await Analyzers.RunAsync(root, "Recommended", config);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return "not accepted - " + ex.Message.Split('.')[0];   // no solution configured yet
+        }
+
+        var (findings, problem) = result;
+        if (problem is not null)
+        {
+            return "not accepted - " + problem.Split('\n')[0];
+        }
+
+        Accept(root, findings, key => key.StartsWith("build/", StringComparison.Ordinal));
+        return $"accepted {findings.Count} analyzer finding(s) as the baseline";
+    }
+
+    /// <summary>Replaces this check's entries in quality/baseline.json and leaves the other check's alone (the same merge <c>--update-baseline</c> does).</summary>
+    private static void Accept(string root, IReadOnlyList<Finding> findings, Func<string, bool> ownKeys)
+    {
+        var kept = Baseline.Load(root).Entries.Where(e => !ownKeys(e.Key)).ToDictionary(e => e.Key, e => e.Value);
+        foreach (var (key, value) in Baseline.From(findings).Entries)
+        {
+            kept[key] = value;
+        }
+
+        new Baseline { Entries = kept }.Save(root);
     }
 
     private static async Task<string> GenerateFeaturesAsync(string root, ToolConfig config)

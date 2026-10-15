@@ -45,6 +45,20 @@ public sealed class InitCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task TheSmellsBaselineIsAcceptedOnlyWhenAskedFor()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "src"));
+        File.WriteAllText(Path.Combine(_root, "src", "A.cs"), "class A { void M() { } }");
+        var config = new ToolConfig();
+
+        await InitCommand.RunAsync(_root, config);
+        Assert.False(File.Exists(Path.Combine(_root, "quality", "baseline.json")));
+
+        await InitCommand.RunAsync(_root, config, acceptBaselines: true);
+        Assert.True(File.Exists(Path.Combine(_root, "quality", "baseline.json")));
+    }
+
+    [Fact]
     public async Task InitDoesTheAutomaticSteps_ThenIsQuietBecauseTheyAreDone()
     {
         Directory.CreateDirectory(Path.Combine(_root, "src"));

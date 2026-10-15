@@ -110,7 +110,7 @@ internal static class Program
         "features" => await FeaturesCommand(root, options),
         "quick" => await QuickCommand.RunAsync(root, options, ToolConfig.Load(root)),
         "setup" => SetupCommand.Run(root, options, ToolConfig.Load(root)),
-        "init" => await InitCommand.RunAsync(root, ToolConfig.Load(root)),
+        "init" => await InitCommand.RunAsync(root, ToolConfig.Load(root), options.Flag("--accept-baselines")),
         _ => null,
     };
 
