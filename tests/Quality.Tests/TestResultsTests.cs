@@ -112,6 +112,34 @@ public sealed class TestResultsTests : IDisposable
     }
 
     [Fact]
+    public void PathsRelativeToTheProjectFolder_AreResolvedThroughTheCoberturaSource()
+    {
+        // The coverage collector lists "Accounts/User.cs" relative to the project folder named in <source>, not to the repository root.
+        var root = Path.Combine(Path.GetTempPath(), "quality-cov-" + Guid.NewGuid().ToString("N"));
+        var project = Path.Combine(root, "src", "Core");
+        Directory.CreateDirectory(Path.Combine(project, "Accounts"));
+        File.WriteAllText(Path.Combine(project, "Accounts", "User.cs"), "class User { }");
+        try
+        {
+            var xml = "<coverage><sources><source>" + project.Replace('\\', '/') + "/</source></sources><packages><package><classes>"
+                + "<class filename=\"Accounts/User.cs\"><lines><line number=\"1\" hits=\"3\"/><line number=\"2\" hits=\"0\"/></lines></class>"
+                + "<class filename=\"obj/Debug/Generated.g.cs\"><lines><line number=\"1\" hits=\"1\"/></lines></class>"
+                + "</classes></package></packages></coverage>";
+            var files = new Dictionary<string, Dictionary<int, int>>(StringComparer.OrdinalIgnoreCase);
+
+            TestResults.MergeCoverage(files, xml);
+            var group = Assert.Single(TestResults.Summarize(files, root, new ToolConfig()));
+
+            Assert.Equal("src/Core", group.Name);
+            Assert.Equal((1, 2), (group.Covered, group.Lines));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void OnlyOurOwnSourceCounts_NotGeneratedCodeTestsOrSkippedFolders()
     {
         var files = new Dictionary<string, Dictionary<int, int>>(StringComparer.OrdinalIgnoreCase);

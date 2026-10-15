@@ -24,6 +24,7 @@
 //   quality analyzers [--mode Recommended|All] [--update-baseline]
 //   quality scripts
 //   quality crawl [--url https://staging.example.com] [--max-pages 120] [--desktop] [--delay 150]
+//   quality setup [--skip <id> --reason "..."] [--acknowledge]          # the first-run checklist: what this site has not done yet, ranked by value for the time
 //   quality quick [--since origin/master] [--no-tests] [--no-build]   # small iterations: smells of just the changed files + just the tests that mention them; writes nothing
 //   quality all --url http://localhost:5199     # everything, including a crawl of a local site
 //   add --open to any run to open the HTML report (reports/quality-latest.html) in Chrome; quality.json's "openReport" ("always" / "onFindings") does it without the flag, --no-open overrides it
@@ -38,7 +39,7 @@ using CodeQuality.Quality;
 
 internal static class Program
 {
-    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick" };
+    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick", "setup" };
 
     private static async Task<int> Main(string[] args)
     {
@@ -94,6 +95,7 @@ internal static class Program
 
         Say();
         Say(worst switch { 0 => "All clear.", 1 => "Something new or worse needs a look.", _ => "A check could not run." });
+        AppendSetupNotice(Say, root, config, collected);
         var file = Path.Combine(Repo.OutputRoot(root), "reports", $"quality-{DateTime.Now:yyyy-MM-dd_HHmm}.txt");
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, report.ToString());
@@ -101,14 +103,25 @@ internal static class Program
         return worst;
     }
 
-    /// <summary>The commands that are not one of the recorded checks (no report, no timeline entry of their own): history, features and quick. Null for the rest.</summary>
+    /// <summary>The commands that are not one of the recorded checks (no report, no timeline entry of their own): history, features, quick and setup. Null for the rest.</summary>
     private static async Task<int?> RunStandaloneAsync(string command, string root, Options options) => command switch
     {
         "history" => await HistoryCommand(root, options),
         "features" => await FeaturesCommand(root, options),
         "quick" => await QuickCommand.RunAsync(root, options, ToolConfig.Load(root)),
+        "setup" => SetupCommand.Run(root, options, ToolConfig.Load(root)),
         _ => null,
     };
+
+    /// <summary>Ends a run with the first-run list (a site never reviewed) or a one-line reminder (items still outstanding): the line Claude reads and passes on. Nothing when the site is set up.</summary>
+    private static void AppendSetupNotice(Action<string> say, string root, ToolConfig config, Collected collected)
+    {
+        if (SetupCommand.Notice(root, config, collected) is { Length: > 0 } notice)
+        {
+            say(string.Empty);
+            say(notice);
+        }
+    }
 
     /// <summary>features: writes reports/feature-map.html (every page, clicks from the home page, the tests that mention it, whether the crawler visits it) and opens it unless --no-open.</summary>
     private static async Task<int> FeaturesCommand(string root, Options options)

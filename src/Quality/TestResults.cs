@@ -150,9 +150,11 @@ internal static class TestResults
     /// <summary>Adds one Cobertura report to the running picture: for each source file, the most times each line ran in any project's tests (a line ran if any project ran it).</summary>
     internal static void MergeCoverage(Dictionary<string, Dictionary<int, int>> files, string xml)
     {
-        foreach (var @class in XDocument.Parse(xml).Descendants("class"))
+        var document = XDocument.Parse(xml);
+        var sources = document.Descendants("source").Select(s => s.Value.Trim()).Where(s => s.Length > 0).ToList();
+        foreach (var @class in document.Descendants("class"))
         {
-            var file = ((string?)@class.Attribute("filename") ?? string.Empty).Replace('\\', '/');
+            var file = InSourceFolder(((string?)@class.Attribute("filename") ?? string.Empty).Replace('\\', '/'), sources);
             if (file.Length == 0)
             {
                 continue;
@@ -172,6 +174,29 @@ internal static class TestResults
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Cobertura writes a file's path relative to one of its <c>&lt;source&gt;</c> folders (the project's own folder, for the coverage collector), or relative to the repository root when the build is deterministic.
+    /// A relative path that exists under one of the sources becomes that absolute path; anything else is left as reported (the root-relative case, resolved by <see cref="Summarize"/>).
+    /// </summary>
+    private static string InSourceFolder(string file, IReadOnlyList<string> sources)
+    {
+        if (file.Length == 0 || Path.IsPathRooted(file) || file.StartsWith('/'))
+        {
+            return file;
+        }
+
+        foreach (var source in sources)
+        {
+            var candidate = source.Replace('\\', '/').TrimEnd('/') + "/" + file;
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return file;
     }
 
     /// <summary>Line coverage per project folder, over our own C# source only (not generated code, the tests themselves, or the shared submodules the config skips).</summary>

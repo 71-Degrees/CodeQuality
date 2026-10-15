@@ -15,6 +15,10 @@ test folders, npm script checks and the staging URL if unknown; add `/tools/Code
 `--update-baseline`, commit `quality/baseline.json`, `quality/history.json`, `quality/quality.json`, and put `reports/` in `.gitignore`. Use the command prefix from `toolCommand` in `quality/quality.json`
 (normally `dotnet run --project tools/CodeQuality/src/Quality --`).
 
+## First run: a new site, or one that never had a review
+
+When any run ends with a **FIRST RUN** block, or `<tool> setup` lists items, the site has first-time work outstanding. Do not skip past it: tell the user what is missing (the ranked list - value, minutes to run, minutes to set up), recommend what to do now (the top, free items), and ask which they want. Items marked **NEEDS THE OWNER'S OK** (the crawl: real traffic to a live site) wait for an explicit yes. Do the ones they choose; for a deliberate no run `<tool> setup --skip <id> --reason "..."`; when the list has been dealt with run `<tool> setup --acknowledge`, and commit `quality/setup.json` with the baseline. A later one-line `Setup: N first-run item(s) still outstanding` is the same list: mention it when it is relevant, do not nag.
+
 ## 1. Run and read
 
 - **Between edits in a small iteration, use `<tool> quick`** (after a compile): smells of only the git-changed files against the baseline + only the tests that mention the changed types (or request the pages that show a changed component). Writes nothing. `--since origin/master` covers everything since the last push; `--no-tests` for the smells alone. It is a by-name shortcut: the full `<tool>` run and the whole test suite are the gate before a push, and a "no test mentions ..." line is a gap worth a test.
