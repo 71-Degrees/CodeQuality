@@ -27,7 +27,7 @@ dotnet run --project tools/CodeQuality/src/Quality -- analyzers        # a full 
 dotnet run --project tools/CodeQuality/src/Quality -- scripts          # the npm checks named in scriptChecks
 dotnet run --project tools/CodeQuality/src/Quality -- crawl            # headless Chromium walk of crawl.defaultUrl (or --url)
 dotnet run --project tools/CodeQuality/src/Quality -- tests            # every test project with coverage (--include-browser adds the browser tests)
-dotnet run --project tools/CodeQuality/src/Quality -- quick            # small iterations: smells of just the changed files + just the tests that mention them (--since origin/master, --no-tests, --no-build)
+dotnet run --project tools/CodeQuality/src/Quality -- quick            # small iterations: smells of just the changed files + just the tests that mention them (--since origin/master, --no-tests, --no-build, --browser)
 dotnet run --project tools/CodeQuality/src/Quality -- history          # the timeline summary (--backfill rebuilds it from git)
 dotnet run --project tools/CodeQuality/src/Quality -- smells --update-baseline   # accept today's state (after fixing things, or on purpose)
 dotnet run --project tools/CodeQuality/src/Refactor -- fix-analyzers   # dry run of the mechanical analyzer fixes
@@ -113,6 +113,14 @@ scenario that got slow.
 
 `dotnet build CodeQuality.slnx` and `dotnet test CodeQuality.slnx`. The tools check themselves: `dotnet run --project src/Quality`. See `CLAUDE.md` for the engineering standard.
 These tools lived in `tools/Quality`, `tools/Refactor` and `tools/Common` of the TriviaNight repository until 2026-10-09.
+
+### Generated browser tests: `quality browser --generate`
+
+Writes a browser-test project from `quality/features.json`, with no tokens: `tests/<Site>.Browser.Tests` with a `Site` fixture (starts the web project, blocks outside requests), a small `Journey` helper and `Journeys.cs`, one
+test per function. A journey signs in through `browser.signInPath` when the function is not for Anyone, starts at the home page, clicks the link text of each "Click ..." step (a step not found within 5 s falls back to opening
+the function's first fixed page by its address), checks it ended on one of the function's pages, and fails on any console error, page error or 5xx. It drives navigation, not forms, so nothing is marked walked. A function
+whose pages all take a route parameter gets no test (a person has to pick a record). `Journeys.cs` is rewritten each run; the other files are written once and then belong to the site. The `browser` block of quality.json:
+`webProject` (found by its web SDK when absent), `testProject`, `readyPath`, `signInPath`, `environment`. `quality init` runs it after drafting the feature list; `quality quick --browser` drives just the touched functions' journeys.
 
 ## The Claude Code skill
 

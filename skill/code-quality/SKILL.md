@@ -19,6 +19,17 @@ test folders, npm script checks and the staging URL if unknown; add `/tools/Code
 
 When any run ends with a **FIRST RUN** block, or `<tool> setup` lists items, the site has first-time work outstanding. Do not skip past it: tell the user what is missing (the ranked list - value, minutes to run, minutes to set up), recommend what to do now (the top, free items), and ask which they want. Items marked **NEEDS THE OWNER'S OK** (the crawl: real traffic to a live site) wait for an explicit yes. Do the ones they choose; for a deliberate no run `<tool> setup --skip <id> --reason "..."`; when the list has been dealt with run `<tool> setup --acknowledge`, and commit `quality/setup.json` with the baseline. A later one-line `Setup: N first-run item(s) still outstanding` is the same list: mention it when it is relevant, do not nag.
 
+### First run of a site: `init`
+
+`<tool> init` does every first-run step C# can do with no tokens, one line each, then lists what is left: keeps `reports/` out of git, switches the .NET analyzers on in `Directory.Build.props`, drafts `quality/features.json`
+from the code (entries marked `generated` until reviewed) and generates the browser-test project from it (`<tool> browser --generate`; add a `browser` block to `quality/quality.json` with `signInPath` - the site's dev
+sign-in shortcut - and `environment` for a signed-in site). It is safe to run again. Accepting the baselines is the owner's call: `init --accept-baselines` does both. Then review the draft names, steps and who may do each.
+
+### Between edits
+
+`<tool> quick` checks only what changed: the smells of those files and the tests of the functions they touch (a changed page stands for its routes; the function that owns each says which test classes run). `quick --browser`
+also drives the generated browser journeys of just those functions (`--no-tests --browser` for the journeys alone). It writes nothing. The push check is `tools/Deploy check` (fast); `check --full` (build, prod) runs everything.
+
 ## 1. Run and read
 
 - **Between edits in a small iteration, use `<tool> quick`** (after a compile): smells of only the git-changed files against the baseline + only the tests that mention the changed types (or request the pages that show a changed component). Writes nothing. `--since origin/master` covers everything since the last push; `--no-tests` for the smells alone. It is a by-name shortcut: the full `<tool>` run and the whole test suite are the gate before a push, and a "no test mentions ..." line is a gap worth a test.
