@@ -17,6 +17,7 @@ test folders, npm script checks and the staging URL if unknown; add `/tools/Code
 
 ## 1. Run and read
 
+- **Between edits in a small iteration, use `<tool> quick`** (after a compile): smells of only the git-changed files against the baseline + only the tests that mention the changed types (or request the pages that show a changed component). Writes nothing. `--since origin/master` covers everything since the last push; `--no-tests` for the smells alone. It is a by-name shortcut: the full `<tool>` run and the whole test suite are the gate before a push, and a "no test mentions ..." line is a gap worth a test.
 - Quick look (seconds, no build): `<tool> smells`. Full set (about a minute): `<tool>` with no command = smells + analyzers + script checks. Add `--open` only if the user wants Chrome opened.
 - Read the output, not just the exit code. Exit 0 clean, 1 something new or worse (or a crawl error), 2 a check could not run (say which and why; do not call it clean).
 - Report the numbers: findings per check, **new / worse / fixed against the baseline**, and the one-line trend the tool prints ("code smells A -> B, refactoring pressure X -> Y, analyzer findings P -> Q").

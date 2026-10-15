@@ -24,6 +24,7 @@
 //   quality analyzers [--mode Recommended|All] [--update-baseline]
 //   quality scripts
 //   quality crawl [--url https://staging.example.com] [--max-pages 120] [--desktop] [--delay 150]
+//   quality quick [--since origin/master] [--no-tests] [--no-build]   # small iterations: smells of just the changed files + just the tests that mention them; writes nothing
 //   quality all --url http://localhost:5199     # everything, including a crawl of a local site
 //   add --open to any run to open the HTML report (reports/quality-latest.html) in Chrome; quality.json's "openReport" ("always" / "onFindings") does it without the flag, --no-open overrides it
 // Exit code: 0 clean, 1 something new/worse or a crawl error, 2 a check could not run. A report is written to reports/quality-<date>_<time>.txt (a dated copy per run, so several runs a day all survive).
@@ -37,7 +38,7 @@ using CodeQuality.Quality;
 
 internal static class Program
 {
-    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features" };
+    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick" };
 
     private static async Task<int> Main(string[] args)
     {
@@ -50,14 +51,9 @@ internal static class Program
 
         var options = new Options(args);
         var root = Repo.FindRoot();
-        if (command == "history")
+        if (await RunStandaloneAsync(command, root, options) is { } standalone)
         {
-            return await HistoryCommand(root, options);
-        }
-
-        if (command == "features")
-        {
-            return await FeaturesCommand(root, options);
+            return standalone;
         }
 
         var report = new StringBuilder();
@@ -104,6 +100,15 @@ internal static class Program
         Console.WriteLine($"Report: {file}");
         return worst;
     }
+
+    /// <summary>The commands that are not one of the recorded checks (no report, no timeline entry of their own): history, features and quick. Null for the rest.</summary>
+    private static async Task<int?> RunStandaloneAsync(string command, string root, Options options) => command switch
+    {
+        "history" => await HistoryCommand(root, options),
+        "features" => await FeaturesCommand(root, options),
+        "quick" => await QuickCommand.RunAsync(root, options, ToolConfig.Load(root)),
+        _ => null,
+    };
 
     /// <summary>features: writes reports/feature-map.html (every page, clicks from the home page, the tests that mention it, whether the crawler visits it) and opens it unless --no-open.</summary>
     private static async Task<int> FeaturesCommand(string root, Options options)

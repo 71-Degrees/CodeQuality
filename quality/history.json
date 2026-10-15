@@ -18,7 +18,8 @@
         "Pressure": 0,
         "ByRule": {},
         "PressureByRule": null
-      }
+      },
+      "Tests": null
     },
     {
       "At": "2026-10-09 18:13",
@@ -35,7 +36,8 @@
         "Pressure": 0,
         "ByRule": {},
         "PressureByRule": null
-      }
+      },
+      "Tests": null
     },
     {
       "At": "2026-10-09 19:14",
@@ -60,7 +62,8 @@
         "Pressure": 0,
         "ByRule": {},
         "PressureByRule": null
-      }
+      },
+      "Tests": null
     },
     {
       "At": "2026-10-09 19:14",
@@ -85,7 +88,8 @@
         "Pressure": 0,
         "ByRule": {},
         "PressureByRule": null
-      }
+      },
+      "Tests": null
     },
     {
       "At": "2026-10-09 19:15",
@@ -102,7 +106,8 @@
         "Pressure": 0,
         "ByRule": {},
         "PressureByRule": {}
-      }
+      },
+      "Tests": null
     },
     {
       "At": "2026-10-12 09:27",
@@ -123,7 +128,8 @@
         "Pressure": 0,
         "ByRule": {},
         "PressureByRule": {}
-      }
+      },
+      "Tests": null
     },
     {
       "At": "2026-10-12 09:28",
@@ -140,7 +146,58 @@
         "Pressure": 0,
         "ByRule": {},
         "PressureByRule": {}
-      }
+      },
+      "Tests": null
+    },
+    {
+      "At": "2026-10-15 08:25",
+      "Commit": "954440c",
+      "Note": "",
+      "Smells": {
+        "Total": 4,
+        "Pressure": 4.6,
+        "ByRule": {
+          "EmptyCatch": 1,
+          "LongMethod": 1,
+          "ManyParameters": 2
+        },
+        "PressureByRule": {
+          "EmptyCatch": 1,
+          "LongMethod": 1.2,
+          "ManyParameters": 2.4
+        }
+      },
+      "Analyzers": {
+        "Total": 0,
+        "Pressure": 0,
+        "ByRule": {},
+        "PressureByRule": {}
+      },
+      "Tests": null
+    },
+    {
+      "At": "2026-10-15 08:26",
+      "Commit": "954440c",
+      "Note": "",
+      "Smells": {
+        "Total": 3,
+        "Pressure": 3.4,
+        "ByRule": {
+          "EmptyCatch": 1,
+          "ManyParameters": 2
+        },
+        "PressureByRule": {
+          "EmptyCatch": 1,
+          "ManyParameters": 2.4
+        }
+      },
+      "Analyzers": {
+        "Total": 0,
+        "Pressure": 0,
+        "ByRule": {},
+        "PressureByRule": {}
+      },
+      "Tests": null
     }
   ]
 }

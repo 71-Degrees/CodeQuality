@@ -71,14 +71,17 @@ internal static class Smells
             {
                 var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
                 var isSource = path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".razor", StringComparison.OrdinalIgnoreCase);
-                var skipped = SkipFolders.Concat(config.SkipFolders).Any(("/" + relative).Contains) || relative.EndsWith(".g.cs") || relative.EndsWith(".Designer.cs");
-                if (isSource && !skipped)
+                if (isSource && !IsSkipped(relative, config))
                 {
                     yield return (path, relative, isTest);
                 }
             }
         }
     }
+
+    /// <summary>True for build output, vendored libraries, generated code and anything the site's quality.json skips. Shared with <c>quality quick</c> so both look at the same files.</summary>
+    internal static bool IsSkipped(string relative, ToolConfig config) =>
+        SkipFolders.Concat(config.SkipFolders).Any(("/" + relative).Contains) || relative.EndsWith(".g.cs") || relative.EndsWith(".Designer.cs");
 
     private static void ScanRazor(string file, string text, Thresholds limits, List<Finding> findings)
     {

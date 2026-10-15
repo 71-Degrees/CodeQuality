@@ -1,0 +1,113 @@
+/*
+ * ---------------------------------------------------------------------------
+ * Copyright © 2026 71 Degrees. All rights reserved.
+ * ---------------------------------------------------------------------------
+ */
+
+using System.Diagnostics;
+using CodeQuality.Common;
+
+namespace CodeQuality.Quality;
+
+/// <summary>
+/// <c>quality quick</c>: the fast check for small iterations. It looks only at what the working tree changes (git: staged, unstaged and new files, or <c>--since &lt;ref&gt;</c>) -
+/// the smells of just those files against the baseline, then just the tests that mention the types in them - and leaves the full set (every check, every test) for the push.
+/// It writes nothing: no report, no timeline entry, no baseline change, so a partial look never stands in for a full one.
+/// </summary>
+internal static class QuickCommand
+{
+    internal static async Task<int> RunAsync(string root, Options options, ToolConfig config)
+    {
+        var clock = Stopwatch.StartNew();
+        var since = options.Text("--since", string.Empty);
+        var files = await ChangedFiles.FindAsync(root, since.Length == 0 ? null : since);
+        var changed = ChangedFiles.Sources(files, config);
+        Console.WriteLine($"Quick check of what changed since {(since.Length == 0 ? "HEAD" : since)}: {changed.Count} C#/Razor file(s).");
+        if (changed.Count == 0)
+        {
+            Console.WriteLine("Nothing to check. (The full check - `quality` and the test suite - is for the push.)");
+            return 0;
+        }
+
+        foreach (var file in changed)
+        {
+            Console.WriteLine($"  {(file.IsTest ? "test  " : "source")} {file.Relative}");
+        }
+
+        var worst = SmellsOfChanged(root, options, config, changed);
+        if (!options.Flag("--no-tests"))
+        {
+            worst = Math.Max(worst, await TestsOfChanged(root, options, config, changed));
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{(worst == 0 ? "Quick check clean" : worst == 1 ? "Something new, worse or failing needs a look" : "A check could not run")} ({clock.Elapsed.TotalSeconds:0.#} s). The full check and the whole test suite are still the gate before a push.");
+        return worst;
+    }
+
+    private static int SmellsOfChanged(string root, Options options, ToolConfig config, IReadOnlyList<ChangedSource> changed)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== Code smells in the changed files");
+        var paths = changed.Select(c => c.Relative).ToHashSet(StringComparer.Ordinal);
+        var findings = Smells.Scan(root, options.Flag("--include-tests"), config).Where(f => paths.Contains(f.File)).ToList();
+        var baseline = Baseline.Load(root);
+        var comparison = baseline.Compare(findings, key => !key.StartsWith("build/", StringComparison.Ordinal) && paths.Contains(FileOf(key)));
+        Console.WriteLine($"{findings.Count} finding(s) in them; against the baseline: {comparison.New.Count} new, {comparison.Worse.Count} worse, {comparison.Fixed.Count} fixed.");
+        foreach (var f in comparison.New)
+        {
+            Console.WriteLine($"  NEW   {f.Rule,-14} {f.File}:{f.Line}  {f.Message}");
+        }
+
+        foreach (var (f, was) in comparison.Worse)
+        {
+            Console.WriteLine($"  WORSE {f.Rule,-14} {f.File}:{f.Line}  was {was}, now {f.Value}: {f.Message}");
+        }
+
+        if (comparison.Fixed.Count > 0 && comparison.Clean)
+        {
+            Console.WriteLine("  Some old findings in these files are gone - run `quality smells --update-baseline` to lock in the improvement.");
+        }
+
+        return comparison.Clean ? 0 : 1;
+    }
+
+    private static async Task<int> TestsOfChanged(string root, Options options, ToolConfig config, IReadOnlyList<ChangedSource> changed)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== Tests that mention the changed code");
+        var projects = TestRunner.Projects(root, config, includeBrowser: false);
+        var plan = TestSelection.Plan(root, changed, projects, config.SourceFolders);
+        foreach (var file in plan.NotMentioned)
+        {
+            Console.WriteLine($"  no test mentions anything in {file}");
+        }
+
+        if (plan.ClassesByProject.Count == 0)
+        {
+            Console.WriteLine("  No test class selected - nothing to run. (Reached only through the running app? The full suite covers it at the push.)");
+            return 0;
+        }
+
+        var worst = 0;
+        foreach (var (project, classes) in plan.ClassesByProject)
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            Console.WriteLine($"Running {name}: {classes.Count} test class(es)...");
+            var noBuild = options.Flag("--no-build") ? " --no-build" : string.Empty;
+            var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q{noBuild} --filter \"{TestSelection.Filter(classes)}\"", root, 1800);
+            var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
+            Console.WriteLine("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
+            worst = Math.Max(worst, code == 0 ? 0 : summary is null ? 2 : 1);
+        }
+
+        return worst;
+    }
+
+    /// <summary>A baseline key is rule|file|member.</summary>
+    private static string FileOf(string key)
+    {
+        var parts = key.Split('|');
+        return parts.Length > 1 ? parts[1] : string.Empty;
+    }
+}
