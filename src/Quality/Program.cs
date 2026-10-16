@@ -90,7 +90,7 @@ internal static class Program
         Say($"Dashboard: {await Dashboard.WriteAsync(root, history, config)}");
         if (HtmlReport.ShouldOpen(config.OpenReport, worst, options.Flag("--open"), options.Flag("--no-open")))
         {
-            HtmlReport.Open(html);
+            HtmlReport.Open(html, force: options.Flag("--open"));
         }
 
         Say();
@@ -137,7 +137,7 @@ internal static class Program
         Console.WriteLine($"Feature map: {path}");
         if (options.Flag("--open"))
         {
-            HtmlReport.Open(path);
+            HtmlReport.Open(path, force: true);
         }
 
         return 0;

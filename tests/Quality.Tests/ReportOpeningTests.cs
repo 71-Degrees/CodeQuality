@@ -51,4 +51,25 @@ public sealed class ReportOpeningTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void AnAutomaticOpen_LeavesARecentlyOpenedWindowAlone_AndAskingToOpenAlwaysOpens()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "cq-reuse-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var path = Path.Combine(folder, "quality-latest.html");
+            var now = new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
+
+            Assert.True(HtmlReport.ShouldOpenNow(path, force: false, now));                                        // the first one opens
+            Assert.False(HtmlReport.ShouldOpenNow(path, force: false, now.AddMinutes(20)));                       // the page is refreshing itself
+            Assert.True(HtmlReport.ShouldOpenNow(path, force: true, now.AddMinutes(25)));                         // --open opens one regardless
+            Assert.True(HtmlReport.ShouldOpenNow(path, force: false, now.AddMinutes(25) + HtmlReport.ReuseWindowFor));   // long enough ago to be gone
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
 }

@@ -145,9 +145,31 @@ internal static class HtmlReport
         };
     }
 
-    /// <summary>Opens the report in Chrome (the default browser if Chrome is not found).</summary>
-    public static void Open(string path)
+    /// <summary>How long a window opened by an earlier run is taken to still be there: the page refreshes itself, so a run that finds one recently opened leaves it alone instead of opening another.</summary>
+    internal static readonly TimeSpan ReuseWindowFor = TimeSpan.FromHours(6);
+
+    /// <summary>Whether to open now: always when asked to (<paramref name="force"/>), otherwise only when no window was opened lately (the marker file beside the report says when the last one was).</summary>
+    internal static bool ShouldOpenNow(string path, bool force, DateTimeOffset now)
     {
+        var marker = Path.Combine(Path.GetDirectoryName(path)!, ".report-opened");
+        if (!force && File.Exists(marker) && DateTimeOffset.TryParse(File.ReadAllText(marker), out var lastOpened) && now - lastOpened < ReuseWindowFor)
+        {
+            return false;
+        }
+
+        File.WriteAllText(marker, now.ToString("O"));
+        return true;
+    }
+
+    /// <summary>Opens the report in Chrome (the default browser if Chrome is not found) unless a window opened lately is still live-refreshing it; <paramref name="force"/> (the <c>--open</c> flag) always opens one.</summary>
+    public static void Open(string path, bool force = true)
+    {
+        if (!ShouldOpenNow(path, force, DateTimeOffset.Now))
+        {
+            Console.WriteLine("  (the report window is already open and refreshes itself: " + Path.GetFileName(path) + "; --open opens another)");
+            return;
+        }
+
         var chrome = FindChrome();
         var url = new Uri(path).AbsoluteUri;
         Process.Start(chrome is null ? new ProcessStartInfo(url) { UseShellExecute = true } : new ProcessStartInfo(chrome, $"--new-tab \"{url}\"") { UseShellExecute = false });
@@ -202,6 +224,7 @@ details{margin:6px 0}summary{cursor:pointer;font-weight:600}.scroll{overflow-x:a
 </style></head><body><main>
 <h1>/*TITLE*/ - code quality report</h1>
 <div class="dim" id="meta"></div>
+<div class="dim" id="live"><label><input type="checkbox" id="livebox"> Live: refresh this page every 15 seconds while you iterate</label> <span id="liveat"></span></div>
 <div class="hero" id="hero"></div>
 <div id="status"></div>
 <div id="attention"></div>
@@ -272,6 +295,20 @@ $('howto').textContent = [
   tool + ' history --backfill          rebuild the timeline from the git history of the baseline',
   ...D.howTo.extra].join('\n');
 $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}. ${D.files.length} source files, ${linesTotal.toLocaleString()} lines (C# and Razor).<br>Latest runs - smells: ${esc(when(D.ranAt.smells))}; analyzers: ${esc(when(D.ranAt.analyzers))}; scripts: ${esc(when(D.ranAt.scripts))}; site crawl: ${esc(when(D.ranAt.crawl))}.<br><a href="quality-dashboard.html">Open the dashboard</a> (trends by commit).`;
+// Live monitoring: this page keeps one name, so a run that opens it again reuses the window, and while the box is ticked it reloads itself, picking up each new run as problems are fixed. On by default for the local copy.
+(function () {
+  window.name = 'code-quality-report';
+  const box = $('livebox'), at = $('liveat');
+  let on = location.protocol === 'file:';
+  try { const saved = localStorage.getItem('cq-live'); if (saved !== null) on = saved === '1'; } catch (e) { /* storage blocked: the default stands */ }
+  box.checked = on;
+  at.textContent = 'page last drawn ' + new Date().toLocaleTimeString();
+  let timer = null;
+  const arm = () => { clearTimeout(timer); if (box.checked) timer = setTimeout(() => location.reload(), 15000); };
+  box.addEventListener('change', () => { try { localStorage.setItem('cq-live', box.checked ? '1' : '0'); } catch (e) { /* not remembered */ } arm(); });
+  arm();
+})();
+
 // The headline: where quality is against where it started. The smell number leaves out the checks added after the start (they would make adding a check look like quality getting worse; they are counted
 // in the small chips below), so it is the same measure as the start and the trend table.
 (function () {
@@ -321,12 +358,17 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
     (failedTests ? `<a class="banner alert" href="#failing">${failedTests} test(s) failing (browser tests included): click to see which, and why.</a>` : '') +
     (attention || failedTests ? '' : '<div class="banner ok">Nothing is new or worse than the baseline, and no test is failing.</div>');
 
+  const failingTests = T ? T.projects.filter(p => p.failures.length) : [];
+  const failingHtml = failingTests.length
+    ? '<div class="panel" id="failing"><b class="bad">Failing tests</b> <span class="dim">(the test, then what it said)</span><ul>' + failingTests.flatMap(p => p.failures.map(f => `<li><span class="mono">${esc(p.name)}</span>: ${esc(f)}</li>`)).join('') + '</ul></div>'
+    : '';
   const needAttention = F.filter(f => f.status === 'new' || f.status === 'worse').sort((a, b) => (a.status === b.status ? 0 : a.status === 'new' ? -1 : 1) || (a.file > b.file ? 1 : a.file < b.file ? -1 : 0));
   $('attention').innerHTML = needAttention.length
     ? '<div class="panel" id="attention-list"><b class="bad">New or worse than the baseline</b> <span class="dim">(these fail the push check)</span><div class="scroll"><table><tr><th>Rule</th><th>Where</th><th>What</th><th>Baseline</th></tr>' +
       needAttention.map(f => `<tr><td>${esc(f.rule)}</td><td><span class="mono">${esc(f.file)}:${f.line}</span>${f.member && f.member !== '(file)' ? '<br>' + esc(f.member) : ''}</td><td>${esc(f.message)}</td><td><span class="${f.status}">${f.status}</span></td></tr>`).join('') +
       '</table></div></div>'
     : '';
+  $('attention').innerHTML += failingHtml;
 
   const chip = (n, t, alert) => `<span class="chip${alert ? ' alert' : ''}"><b>${n}</b>${t}</span>`;
   const mech = F.filter(f => f.automation === 'Mechanical').length;
@@ -356,10 +398,6 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
     html += '<h3>Browser scenarios over time</h3><div class="dim">Each scenario\'s last time against the run before it and its best, from the browser tests\' append-only run log: a scenario that got slower, or a site that takes longer to start, shows here before anyone notices.</div>' +
       '<div class="scroll"><table><tr><th>Scenario</th><th class="num">Last</th><th class="num">Before</th><th>Change</th><th class="num">Best</th><th class="num">Runs</th><th class="num">Page problems</th><th>Last run</th></tr>' +
       D.browserRuns.map(r => `<tr><td>${esc(r.name)}</td><td class="num">${ms(r.latest)}</td><td class="num">${ms(r.previous)}</td><td>${change(r)}</td><td class="num">${ms(r.best)}</td><td class="num">${r.runs}</td><td class="num ${r.problems ? 'new' : ''}">${r.problems}</td><td class="dim">${esc(r.at)}</td></tr>`).join('') + '</table></div>';
-  }
-  const failing = T.projects.filter(p => p.failures.length);
-  if (failing.length) {
-    html += '<div class="panel" id="failing"><b class="bad">Failing tests</b> <span class="dim">(the test, then what it said)</span><ul>' + failing.flatMap(p => p.failures.map(f => `<li><span class="mono">${esc(p.name)}</span>: ${esc(f)}</li>`)).join('') + '</ul></div>';
   }
   if (T.groups.length) {
     const max = Math.max(...T.groups.map(g => g.rate)) || 1;
