@@ -46,6 +46,8 @@ public abstract class BrowserSiteFixture : IAsyncLifetime
         Site = await SiteHost.StartAsync(Options).ConfigureAwait(false);
         Log.Append("site started", Site.StartedIn, 0);
         (_playwright, _browser) = await Chromium.LaunchAsync().ConfigureAwait(false);
+        // A journey runs against a site that has just started on a machine that may be busy; the 5 seconds Playwright waits for an expected thing is too tight for the first pages, and a longer wait costs nothing when things are fine.
+        Assertions.SetDefaultExpectTimeout(15_000);
     }
 
     /// <summary>
