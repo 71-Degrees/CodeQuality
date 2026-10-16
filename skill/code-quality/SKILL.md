@@ -28,7 +28,7 @@ sign-in shortcut - and `environment` for a signed-in site). It is safe to run ag
 ### Between edits
 
 `<tool> quick` checks only what changed: the smells of those files and the tests of the functions they touch (a changed page stands for its routes; the function that owns each says which test classes run). `quick --browser`
-also drives the generated browser journeys of just those functions (`--no-tests --browser` for the journeys alone). It writes nothing. The push check is `tools/Deploy check` (fast); `check --full` (build, prod) runs everything.
+also drives the browser tests of just those functions: the site's own browser test classes the functions name, and the generated journeys (`--no-tests --browser` for the journeys alone). It writes nothing. The push check is `tools/Deploy check` (fast); `check --full` (build, prod) runs everything.
 
 ## 1. Run and read
 

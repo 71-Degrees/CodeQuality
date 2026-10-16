@@ -78,7 +78,7 @@ internal static class QuickCommand
     {
         Console.WriteLine();
         Console.WriteLine("== Tests that mention the changed code");
-        var projects = TestRunner.Projects(root, config, includeBrowser: false);
+        var projects = TestRunner.Projects(root, config, includeBrowser: options.Flag("--browser"));   // --browser: the site's own browser test classes the selected functions name run too
         var plan = TestSelection.Plan(root, changed, projects, config.SourceFolders, FeatureRegistryFile.Load(root, config.Features));
         foreach (var function in plan.Functions)
         {
