@@ -240,6 +240,7 @@ internal static partial class BrowserGenerator
             public static async Task ClickAsync(IPage page, string text)
             {
                 var target = page.GetByRole(AriaRole.Link, new() { Name = text }).Or(page.GetByRole(AriaRole.Button, new() { Name = text })).First;
+                var before = page.Url;
                 try
                 {
                     await target.ClickAsync(new() { Timeout = 5_000 });
@@ -249,7 +250,22 @@ internal static partial class BrowserGenerator
                     throw new BrowserProblemException($"No link or button reading \"{text}\" on {new Uri(page.Url).AbsolutePath}: the step is stale or the page changed.");
                 }
 
-                await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+                // A click that goes to another page returns before that page has begun to load, so the new address is waited for (a button that stays put just does not get one), then the page being live.
+                await MovedFromAsync();
+                await page.WaitUntilLiveAsync();
+
+                async Task MovedFromAsync()
+                {
+                    try
+                    {
+                        await page.WaitForURLAsync(url => url != before, new() { Timeout = 3_000 });
+                    }
+                    catch (TimeoutException)
+                    {
+                        // the address did not change: the same page, updated in place
+                        return;
+                    }
+                }
             }
         """;
 

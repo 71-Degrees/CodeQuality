@@ -15,6 +15,13 @@ public static class BlazorPages
     public static async Task GotoLiveAsync(this IPage page, string url, float timeoutMilliseconds = 30_000)
     {
         await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle, Timeout = timeoutMilliseconds }).ConfigureAwait(false);
+        await page.WaitUntilLiveAsync(timeoutMilliseconds).ConfigureAwait(false);
+    }
+
+    /// <summary>Waits until the page in front is interactive (the runtime has started, no error or reconnect bar). Call it after anything that loads a new page, such as a click on a link: the click returns before the new page has begun to load, and typing into a page that is not live yet is lost.</summary>
+    public static async Task WaitUntilLiveAsync(this IPage page, float timeoutMilliseconds = 30_000)
+    {
+        await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions { Timeout = timeoutMilliseconds }).ConfigureAwait(false);
         await page.WaitForFunctionAsync("() => window.Blazor !== undefined", null, new PageWaitForFunctionOptions { Timeout = timeoutMilliseconds }).ConfigureAwait(false);
         await page.WaitForFunctionAsync(
             "() => { const bar = document.querySelector('#blazor-error-ui'); const reconnect = document.querySelector('.components-reconnect-show'); return (!bar || getComputedStyle(bar).display === 'none') && !reconnect; }",
