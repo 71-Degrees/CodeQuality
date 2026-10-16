@@ -79,7 +79,7 @@ internal static class QuickCommand
         Console.WriteLine();
         Console.WriteLine("== Tests that mention the changed code");
         var projects = TestRunner.Projects(root, config, includeBrowser: options.Flag("--browser"));   // --browser: the site's own browser test classes the selected functions name run too
-        var plan = TestSelection.Plan(root, changed, projects, config.SourceFolders, FeatureRegistryFile.Load(root, config.Features));
+        var plan = WithoutGeneratedJourneys(root, config, TestSelection.Plan(root, changed, projects, config.SourceFolders, FeatureRegistryFile.Load(root, config.Features)));
         foreach (var function in plan.Functions)
         {
             Console.WriteLine($"  function: {function.Name} ({(function.Tests.Length == 0 ? "no test is named for it" : string.Join(", ", function.Tests))}); to see it work: {(function.Steps.Length == 0 ? "no clicks listed" : string.Join(" > ", function.Steps))}{(function.Walked ? string.Empty : "  [not walked in a browser]")}");
@@ -131,6 +131,14 @@ internal static class QuickCommand
         }
 
         return worst;
+    }
+
+    /// <summary>The generated journeys are driven function by function (<see cref="BrowserOfChanged"/>); selecting their test class by name as well would run every journey, which is minutes of browser for a small change.</summary>
+    private static TestPlan WithoutGeneratedJourneys(string root, ToolConfig config, TestPlan plan)
+    {
+        var generated = Path.GetFullPath(BrowserCommand.ProjectFolder(root, config)) + Path.DirectorySeparatorChar;
+        var kept = plan.ClassesByProject.Where(p => !Path.GetFullPath(p.Key).StartsWith(generated, StringComparison.OrdinalIgnoreCase)).ToDictionary(p => p.Key, p => p.Value);
+        return plan with { ClassesByProject = kept };
     }
 
     /// <summary>--browser: drives the generated journeys of just the functions the change touches in a real browser (see <c>quality browser --generate</c>). Skipped, with the reason, where there is no such project.</summary>
