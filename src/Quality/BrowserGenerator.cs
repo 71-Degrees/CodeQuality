@@ -13,12 +13,13 @@ namespace CodeQuality.Quality;
 /// <summary>
 /// <c>quality browser --generate</c>: writes a browser-test project from the feature list, with no tokens. One test per function: sign in the way the site's seed shortcut allows (for a function that needs a person),
 /// start at the home page, click the link text of each "Click ..." step in order, and check the browser ended on one of the function's pages with nothing logged to the console and no server error. It drives the
-/// navigation, not the forms: a function whose steps type into a form is exercised up to the form and is not marked walked.
+/// navigation, not the forms: a function whose steps type into a form is exercised up to the form and is not marked walked - unless the site walks it itself: <c>Walks.cs</c> (written once, then the site's own)
+/// maps a function id to a real walk (make the record it needs, type, click, check what a person would see), and the generated test runs that instead, for pages with a route parameter too.
 /// </summary>
 internal static partial class BrowserGenerator
 {
     /// <summary>The files to write, by path relative to the test project. <c>Journeys.cs</c> is rewritten each run; the rest are written once and then belong to the site.</summary>
-    internal static IReadOnlyDictionary<string, string> Files(string siteName, BrowserSettings settings, FeatureRegistryFile registry, string toolRelativeToProject, string webProjectRelativeToRoot)
+    internal static IReadOnlyDictionary<string, string> Files(string siteName, BrowserSettings settings, FeatureRegistryFile registry, string toolRelativeToProject, string webProjectRelativeToRoot, string? walksText = null)
     {
         var project = Identifier(siteName) + ".Browser.Tests";
         return new Dictionary<string, string>
@@ -26,9 +27,14 @@ internal static partial class BrowserGenerator
             [project + ".csproj"] = ProjectFile(toolRelativeToProject),
             ["Site.cs"] = SiteClass(project, settings, webProjectRelativeToRoot),
             ["Journey.cs"] = JourneyHelper(project, settings.SignInPath ?? "/"),
-            ["Journeys.cs"] = Journeys(project, settings, registry),
+            ["Walks.cs"] = WalksFile(project),
+            ["Journeys.cs"] = Journeys(project, settings, registry, WalkedIds(walksText)),
         };
     }
+
+    /// <summary>The function ids the site walks itself: an entry <c>["id"] = ...</c> in its Walks.cs (a commented-out one does not count).</summary>
+    internal static IReadOnlySet<string> WalkedIds(string? walksText) =>
+        walksText is null ? new HashSet<string>() : WalkEntry().Matches(walksText).Select(m => m.Groups["id"].Value).ToHashSet(StringComparer.Ordinal);
 
     internal static string MethodName(string id) => Regex.Replace(id, "[^A-Za-z0-9_]", "_");
 
@@ -40,20 +46,27 @@ internal static partial class BrowserGenerator
 
     internal static string? StartPage(FeatureFunction function) => function.Routes.FirstOrDefault(r => !r.Contains('{', StringComparison.Ordinal));
 
-    private static string Journeys(string project, BrowserSettings settings, FeatureRegistryFile registry)
+    private static string Journeys(string project, BrowserSettings settings, FeatureRegistryFile registry, IReadOnlySet<string> walked)
     {
         var tests = new StringBuilder();
         var skipped = new List<string>();
         foreach (var function in registry.Functions)
         {
             var path = ClickPath(function);
+            var signedIn = settings.SignInPath is not null && !function.Who.Equals("Anyone", StringComparison.OrdinalIgnoreCase);
+            if (walked.Contains(function.Id))
+            {
+                tests.Append(WalkedTest(function, signedIn));
+                continue;
+            }
+
             if (StartPage(function) is null)
             {
                 skipped.Add(function.Id);
                 continue;
             }
 
-            tests.Append(Test(function, path, settings.SignInPath is not null && !function.Who.Equals("Anyone", StringComparison.OrdinalIgnoreCase)));
+            tests.Append(Test(function, path, signedIn));
         }
 
         var header = skipped.Count == 0 ? string.Empty : $"// No test (only pages with a route parameter, so a person has to pick a record first): {string.Join(", ", skipped)}\n";
@@ -69,6 +82,22 @@ internal static partial class BrowserGenerator
             {
             {{tests.ToString().TrimEnd()}}
             }
+
+            """;
+    }
+
+    /// <summary>A function the site walks itself (Walks.cs): the test only signs in when it needs to and hands over to the walk, which makes its own data and asserts what a person would see.</summary>
+    private static string WalkedTest(FeatureFunction function, bool signedIn)
+    {
+        var signIn = signedIn ? "            await Journey.SignInAsync(site, journey.Page);\n" : string.Empty;
+        return $$"""
+                [BrowserFact]
+                public async Task {{MethodName(function.Id)}}()
+                {
+                    await using var journey = await site.NewPageAsync(1280, 800);
+            {{signIn}}        await journey.RunAsync({{Literal(function.Id)}}, page => Walks.ByFunction[{{Literal(function.Id)}}](site, page));
+                }
+
 
             """;
     }
@@ -102,6 +131,31 @@ internal static partial class BrowserGenerator
     private static string Literal(string text) => "\"" + text.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     private const string Header = "/*\n * ---------------------------------------------------------------------------\n * Copyright © 2026 71 Degrees. All rights reserved.\n * ---------------------------------------------------------------------------\n */";
+
+    private static string WalksFile(string project) => $$"""
+        {{Header}}
+
+        using Microsoft.Playwright;
+
+        namespace {{project}};
+
+        /// <summary>
+        /// The journeys the site walks for real. Written once by `quality browser --generate`; it is the site's now. Add an entry per function id (as in quality/features.json) and `--generate` runs that walk
+        /// instead of only visiting the page: it may make the record the page needs, type, click, and then check what a person would see. Use <see cref="Journey.ClickAsync"/> for a click by the words on the screen,
+        /// so a step that no longer matches the page fails loudly. An entry that is commented out does not count.
+        /// </summary>
+        internal static class Walks
+        {
+            public static readonly IReadOnlyDictionary<string, Func<Site, IPage, Task>> ByFunction = new Dictionary<string, Func<Site, IPage, Task>>
+            {
+                // ["example-function"] = async (site, page) => { await Journey.StartAsync(site, page, "/"); },
+            };
+        }
+
+        """;
+
+    [GeneratedRegex(@"^\s*\[""(?<id>[^""]+)""\]\s*=", RegexOptions.Multiline)]
+    private static partial Regex WalkEntry();
 
     private static string ProjectFile(string toolRelativeToProject) => $"""
         <Project Sdk="Microsoft.NET.Sdk">
@@ -216,6 +270,24 @@ internal static partial class BrowserGenerator
 
                     await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
                 }
+            }
+
+            /// <summary>
+            /// Clicks the link or button showing this text, and fails with the words that were not found when it is not there (the walk and the page have drifted apart) instead of quietly going somewhere else.
+            /// </summary>
+            public static async Task ClickAsync(IPage page, string text)
+            {
+                var target = page.GetByRole(AriaRole.Link, new() { Name = text }).Or(page.GetByRole(AriaRole.Button, new() { Name = text })).First;
+                try
+                {
+                    await target.ClickAsync(new() { Timeout = 5_000 });
+                }
+                catch (TimeoutException)
+                {
+                    throw new BrowserProblemException($"No link or button reading \"{text}\" on {new Uri(page.Url).AbsolutePath}: the step is stale or the page changed.");
+                }
+
+                await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
             }
 
             public static void AssertOnOneOf(IPage page, params string[] bases)

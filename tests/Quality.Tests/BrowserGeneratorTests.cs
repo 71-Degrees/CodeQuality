@@ -27,6 +27,21 @@ public sealed class BrowserGeneratorTests
     }
 
     [Fact]
+    public void AFunctionTheSiteWalksItself_RunsThatWalk_EvenWhenItsPageNeedsARecord()
+    {
+        var files = BrowserGenerator.Files("My Site", new BrowserSettings { SignInPath = "/dev/seed" },
+            new FeatureRegistryFile { Functions = [Function("join", "Anyone", ["Click Join", "Type a code"], ["/play/{Code}"]), Function("read", "Anyone", ["Click Terms"], ["/terms"])] },
+            "..\\..\\tools\\CodeQuality", "src/Web/Web.csproj", "// [\"read\"] = nothing yet\n            [\"join\"] = JoinAsync,");
+
+        var text = files["Journeys.cs"];
+        Assert.Contains("Walks.ByFunction[\"join\"](site, page)", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Walks.ByFunction[\"read\"]", text, StringComparison.Ordinal);   // a commented-out entry is not a walk
+        Assert.Contains("public async Task read()", text, StringComparison.Ordinal);
+        Assert.Contains("class Walks", files["Walks.cs"], StringComparison.Ordinal);
+        Assert.Contains("ClickAsync", files["Journey.cs"], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ClicksStopAtTheFirstEntry_BecauseTheJourneyDrivesNavigationNotForms()
     {
         var path = BrowserGenerator.ClickPath(Function("f", "Anyone", ["Click Contact", "Type Message", "Click Send"], ["/contact"]));

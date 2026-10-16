@@ -24,7 +24,7 @@ internal static class BrowserCommand
         return ok ? 0 : 2;
     }
 
-    /// <summary>Writes the project and says what it did. <c>Journeys.cs</c> is rewritten each time; the other files are written once.</summary>
+    /// <summary>Writes the project and says what it did. <c>Journeys.cs</c> is rewritten each time; the other files (<c>Walks.cs</c> among them, the site's own real walks) are written once.</summary>
     internal static (bool Ok, string Message) Generate(string root, ToolConfig config)
     {
         var settings = config.Browser ?? new BrowserSettings();
@@ -40,7 +40,8 @@ internal static class BrowserCommand
 
         var siteName = config.SiteName ?? Path.GetFileName(root);
         var folder = ProjectFolder(root, config);
-        var files = BrowserGenerator.Files(siteName, settings, registry, Path.GetRelativePath(folder, Path.Combine(root, "tools", "CodeQuality")), webProject);
+        var walksPath = Path.Combine(folder, "Walks.cs");
+        var files = BrowserGenerator.Files(siteName, settings, registry, Path.GetRelativePath(folder, Path.Combine(root, "tools", "CodeQuality")), webProject, File.Exists(walksPath) ? File.ReadAllText(walksPath) : null);
         Directory.CreateDirectory(folder);
         var wrote = new List<string>();
         foreach (var (name, content) in files)
