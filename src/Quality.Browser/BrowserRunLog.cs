@@ -17,13 +17,27 @@ public sealed class BrowserRunLog
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private static readonly Lock Gate = new();
 
+    /// <summary>Set (to anything) by <c>quality quick</c> for the test runs it starts: a partial, in-the-middle-of-editing run is not a data point of the record that is read over time.</summary>
+    public const string QuickRunVariable = "QUALITY_QUICK";
+
     private readonly string _path;
+    private readonly bool _silent;
 
     /// <param name="path">The file to append to (created, with its folder, when missing).</param>
-    public BrowserRunLog(string path) => _path = path;
+    /// <param name="silent">Record nothing. By default: whenever a quick run started this process (<see cref="QuickRunVariable"/>).</param>
+    public BrowserRunLog(string path, bool? silent = null)
+    {
+        _path = path;
+        _silent = silent ?? !string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable(QuickRunVariable));
+    }
 
     public void Append(string name, TimeSpan took, int problems, string? note = null)
     {
+        if (_silent)
+        {
+            return;
+        }
+
         var line = JsonSerializer.Serialize(new { at = DateTimeOffset.Now, name, milliseconds = (long)took.TotalMilliseconds, problems, note }, Json);
         lock (Gate)
         {

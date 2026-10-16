@@ -146,6 +146,16 @@ public sealed class BrowserToolsTests
         Assert.Contains("with a note", lines[1]);
     }
 
+    [Fact]
+    public void ASilentRunLogRecordsNothing_ForARunThatIsOnlyAPartialLook()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "cq-runlog-" + Guid.NewGuid().ToString("N"), "runs.jsonl");
+
+        new BrowserRunLog(path, silent: true).Append("first", TimeSpan.FromMilliseconds(5), 0);
+
+        Assert.False(File.Exists(path));
+    }
+
     // ---- with a real browser (skipped where Chromium is not installed) ----
 
     private static async Task<(IPlaywright Playwright, IBrowser Browser, IPage Page)> OpenAsync()

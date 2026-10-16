@@ -16,9 +16,15 @@ namespace CodeQuality.Quality;
 /// </summary>
 internal static class QuickCommand
 {
+    /// <summary>The same name Quality.Browser's BrowserRunLog.QuickRunVariable looks for (the two projects do not reference each other).</summary>
+    private const string QuickRunVariable = "QUALITY_QUICK";
+
     internal static async Task<int> RunAsync(string root, Options options, ToolConfig config)
     {
         var clock = Stopwatch.StartNew();
+
+        // Everything a quick run starts (test runs, the site, the browser) inherits this: none of it may add to the records that are read over time (the browser run log), and none of it publishes anything.
+        Environment.SetEnvironmentVariable(QuickRunVariable, "1");
         var since = options.Text("--since", string.Empty);
         var commit = options.Text("--commit", string.Empty);
         var files = commit.Length > 0 ? await ChangedFiles.OfCommitAsync(root, commit) : await ChangedFiles.FindAsync(root, since.Length == 0 ? null : since);
