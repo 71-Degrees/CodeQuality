@@ -69,6 +69,20 @@ public sealed class ToolConfig
     /// <summary>Folder names to leave out (for example <c>/Migrations/</c>), on top of build output and generated code.</summary>
     public string[] SkipFolders { get; init; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Code, tools and tests set aside for now (path fragments like <see cref="SkipFolders"/>, for example a development-only scenario seeder or a load tool): left out of the smell scan, the feature map, test selection and the
+    /// test counts until switched back on with <c>--include-parked</c> (or the <see cref="IncludeParkedVariable"/> environment variable). They stay in the build; only the quality tooling looks away.
+    /// </summary>
+    public string[] Parked { get; init; } = Array.Empty<string>();
+
+    public const string IncludeParkedVariable = "QUALITY_INCLUDE_PARKED";
+
+    /// <summary>Everything the tools skip: the declared folders, and the parked ones unless parking is switched off for this run.</summary>
+    public IEnumerable<string> Skipped => SkippedPaths(Environment.GetEnvironmentVariable(IncludeParkedVariable) is { Length: > 0 });
+
+    /// <summary>The skipped path fragments, with or without the parked ones.</summary>
+    public IEnumerable<string> SkippedPaths(bool includeParked) => includeParked ? SkipFolders : SkipFolders.Concat(Parked);
+
     /// <summary>The npm scripts to run as the browser-script checks (<c>typecheck</c>, <c>lint</c>). Empty: that check is skipped.</summary>
     public string[] ScriptChecks { get; init; } = Array.Empty<string>();
 

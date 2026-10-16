@@ -81,7 +81,7 @@ internal static class Smells
 
     /// <summary>True for build output, vendored libraries, generated code and anything the site's quality.json skips. Shared with <c>quality quick</c> so both look at the same files.</summary>
     internal static bool IsSkipped(string relative, ToolConfig config) =>
-        SkipFolders.Concat(config.SkipFolders).Any(("/" + relative).Contains) || relative.EndsWith(".g.cs") || relative.EndsWith(".Designer.cs");
+        SkipFolders.Concat(config.Skipped).Any(("/" + relative).Contains) || relative.EndsWith(".g.cs") || relative.EndsWith(".Designer.cs");
 
     private static void ScanRazor(string file, string text, Thresholds limits, List<Finding> findings)
     {

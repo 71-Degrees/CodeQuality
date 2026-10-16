@@ -43,6 +43,8 @@ internal static class Program
 
     private static async Task<int> Main(string[] args)
     {
+        ApplyParkedSwitch(args);
+
         var command = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : "default";
         if (!Commands.Contains(command))
         {
@@ -69,14 +71,7 @@ internal static class Program
         Say($"Quality check, {DateTime.Now:yyyy-MM-dd HH:mm}");
         var worst = await RunChecksAsync(command, new RunContext(root, options, Say, collected, config));
 
-        // Whatever the test projects last wrote (the pre-push check writes it on every push, `quality tests` on demand), so every report shows the latest test numbers.
-        if (TestResults.Read(root, config) is { } tests)
-        {
-            collected.Tests = tests;
-            collected.TestsAt = tests.At;
-        }
-
-        collected.BrowserRuns = BrowserRuns.Read(root, config);
+        TakeLatestResults(root, config, collected);
         collected.Save(root);
         var history = await RecordHistoryAsync(root, collected);
         var html = await HtmlReport.WriteAsync(root, collected, Baseline.Load(root), history, config, options.Flag("--include-tests"));
@@ -101,6 +96,27 @@ internal static class Program
         File.WriteAllText(file, report.ToString());
         Console.WriteLine($"Report: {file}");
         return worst;
+    }
+
+    // --include-parked: look at the code, tools and tests quality.json has set aside (the same switch as the environment variable, so every child process of this run agrees).
+    private static void ApplyParkedSwitch(string[] args)
+    {
+        if (args.Contains("--include-parked"))
+        {
+            Environment.SetEnvironmentVariable(ToolConfig.IncludeParkedVariable, "1");
+        }
+    }
+
+    // Whatever the test projects last wrote (the pre-push check writes it on every push, `quality tests` on demand), so every report shows the latest test numbers, and the browser tests' run log.
+    private static void TakeLatestResults(string root, ToolConfig config, Collected collected)
+    {
+        if (TestResults.Read(root, config) is { } tests)
+        {
+            collected.Tests = tests;
+            collected.TestsAt = tests.At;
+        }
+
+        collected.BrowserRuns = BrowserRuns.Read(root, config);
     }
 
     /// <summary>The commands that are not one of the recorded checks (no report, no timeline entry of their own): history, features, quick and setup. Null for the rest.</summary>

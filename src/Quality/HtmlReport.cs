@@ -299,7 +299,7 @@ $('meta').innerHTML = `Generated ${esc(D.generated)} at commit ${esc(D.commit)}.
 (function () {
   window.name = 'code-quality-report';
   const box = $('livebox'), at = $('liveat');
-  let on = location.protocol === 'file:';
+  let on = location.protocol === 'file:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   try { const saved = localStorage.getItem('cq-live'); if (saved !== null) on = saved === '1'; } catch (e) { /* storage blocked: the default stands */ }
   box.checked = on;
   at.textContent = 'page last drawn ' + new Date().toLocaleTimeString();

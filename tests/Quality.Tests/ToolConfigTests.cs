@@ -87,4 +87,13 @@ public sealed class ToolConfigTests : IDisposable
         var found = Assert.Single(findings, f => f.Rule == "LongMethod");
         Assert.Equal("app/Long.cs", found.File);
     }
+
+    [Fact]
+    public void ParkedPaths_AreSkippedUntilTheSwitchIsOn()
+    {
+        var config = new ToolConfig { SkipFolders = ["/Migrations/"], Parked = ["/DevSeed.cs", "/tools/LoadTest/"] };
+
+        Assert.Equal(["/Migrations/", "/DevSeed.cs", "/tools/LoadTest/"], config.SkippedPaths(includeParked: false));
+        Assert.Equal(["/Migrations/"], config.SkippedPaths(includeParked: true));
+    }
 }

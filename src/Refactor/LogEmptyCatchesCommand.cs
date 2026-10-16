@@ -53,6 +53,6 @@ internal static class LogEmptyCatchesCommand
         var relative = "/" + Path.GetRelativePath(root, path).Replace('\\', '/');
         return !relative.Contains("/obj/", StringComparison.Ordinal)
             && !relative.Contains("/bin/", StringComparison.Ordinal)
-            && !config.SkipFolders.Any(skipped => relative.Contains(skipped, StringComparison.Ordinal));
+            && !config.Skipped.Any(skipped => relative.Contains(skipped, StringComparison.Ordinal));
     }
 }

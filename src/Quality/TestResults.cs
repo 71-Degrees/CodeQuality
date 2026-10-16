@@ -235,6 +235,6 @@ internal static class TestResults
         var relative = "/" + file[rootPath.Length..];
         return config.SourceFolders.Any(f => relative.StartsWith("/" + f.Trim('/') + "/", StringComparison.OrdinalIgnoreCase))
             && !config.TestFolders.Any(f => relative.StartsWith("/" + f.Trim('/') + "/", StringComparison.OrdinalIgnoreCase))
-            && !config.SkipFolders.Any(s => relative.Contains(s, StringComparison.OrdinalIgnoreCase));
+            && !config.Skipped.Any(s => relative.Contains(s, StringComparison.OrdinalIgnoreCase));
     }
 }

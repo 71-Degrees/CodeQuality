@@ -234,7 +234,7 @@ internal static partial class FeatureMap
             foreach (var path in Directory.EnumerateFiles(folder, pattern, SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
-                if (!relative.Contains("/obj/", StringComparison.Ordinal) && !relative.Contains("/bin/", StringComparison.Ordinal) && !config.SkipFolders.Any(s => ("/" + relative).Contains(s, StringComparison.Ordinal)))
+                if (!relative.Contains("/obj/", StringComparison.Ordinal) && !relative.Contains("/bin/", StringComparison.Ordinal) && !config.Skipped.Any(s => ("/" + relative).Contains(s, StringComparison.Ordinal)))
                 {
                     yield return (path, relative);
                 }
