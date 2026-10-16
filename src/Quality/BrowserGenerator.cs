@@ -241,8 +241,10 @@ internal static partial class BrowserGenerator
             {
                 var target = page.GetByRole(AriaRole.Link, new() { Name = text }).Or(page.GetByRole(AriaRole.Button, new() { Name = text })).First;
                 var before = page.Url;
+                var isLink = false;
                 try
                 {
+                    isLink = await target.EvaluateAsync<bool>("e => e.tagName === 'A'", null, new() { Timeout = 5_000 });
                     await target.ClickAsync(new() { Timeout = 5_000 });
                 }
                 catch (TimeoutException)
@@ -250,15 +252,16 @@ internal static partial class BrowserGenerator
                     throw new BrowserProblemException($"No link or button reading \"{text}\" on {new Uri(page.Url).AbsolutePath}: the step is stale or the page changed.");
                 }
 
-                // A click that goes to another page returns before that page has begun to load, so the new address is waited for (a button that stays put just does not get one), then the page being live.
-                await MovedFromAsync();
+                // A click on a link returns before the next page has begun to load, and the old page still counts as loaded and live, so wait for the new address to finish loading (a link that stays on the page just
+                // does not get one); only then is typing safe. A button changes the page in place.
+                await (isLink ? MovedFromAsync() : Task.CompletedTask);
                 await page.WaitUntilLiveAsync();
 
                 async Task MovedFromAsync()
                 {
                     try
                     {
-                        await page.WaitForURLAsync(url => url != before, new() { Timeout = 3_000 });
+                        await page.WaitForURLAsync(url => url != before, new() { Timeout = 10_000, WaitUntil = WaitUntilState.NetworkIdle });
                     }
                     catch (TimeoutException)
                     {
