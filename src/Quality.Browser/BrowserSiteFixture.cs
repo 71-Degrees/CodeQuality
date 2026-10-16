@@ -56,6 +56,7 @@ public abstract class BrowserSiteFixture : IAsyncLifetime
     {
         var context = await _browser!.NewContextAsync(new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = width, Height = height }, BaseURL = BaseUrl, StorageStatePath = storageStatePath }).ConfigureAwait(false);
         await context.RouteAsync("**/*", AnswerOrBlockAsync).ConfigureAwait(false);
+        await context.AddInitScriptAsync(BlazorPages.WatchLiveConnectionScript).ConfigureAwait(false);
         var page = await context.NewPageAsync().ConfigureAwait(false);
         return new BrowserPage(context, page, new PageProbe(page), Log);
     }
