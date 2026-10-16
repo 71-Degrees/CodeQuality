@@ -232,6 +232,27 @@ internal static partial class BrowserGenerator
             """;
     }
 
+    /// <summary>The strict click of the generated Journey helper, apart from the rest so each stays a readable size.</summary>
+    private const string ClickHelper = """
+            /// <summary>
+            /// Clicks the link or button showing this text, and fails with the words that were not found when it is not there (the walk and the page have drifted apart) instead of quietly going somewhere else.
+            /// </summary>
+            public static async Task ClickAsync(IPage page, string text)
+            {
+                var target = page.GetByRole(AriaRole.Link, new() { Name = text }).Or(page.GetByRole(AriaRole.Button, new() { Name = text })).First;
+                try
+                {
+                    await target.ClickAsync(new() { Timeout = 5_000 });
+                }
+                catch (TimeoutException)
+                {
+                    throw new BrowserProblemException($"No link or button reading \"{text}\" on {new Uri(page.Url).AbsolutePath}: the step is stale or the page changed.");
+                }
+
+                await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
+            }
+        """;
+
     private static string JourneyHelper(string project, string signInPath) => $$"""
         {{Header}}
 
@@ -272,24 +293,7 @@ internal static partial class BrowserGenerator
                 }
             }
 
-            /// <summary>
-            /// Clicks the link or button showing this text, and fails with the words that were not found when it is not there (the walk and the page have drifted apart) instead of quietly going somewhere else.
-            /// </summary>
-            public static async Task ClickAsync(IPage page, string text)
-            {
-                var target = page.GetByRole(AriaRole.Link, new() { Name = text }).Or(page.GetByRole(AriaRole.Button, new() { Name = text })).First;
-                try
-                {
-                    await target.ClickAsync(new() { Timeout = 5_000 });
-                }
-                catch (TimeoutException)
-                {
-                    throw new BrowserProblemException($"No link or button reading \"{text}\" on {new Uri(page.Url).AbsolutePath}: the step is stale or the page changed.");
-                }
-
-                await page.WaitForLoadStateAsync(LoadState.NetworkIdle);
-            }
-
+            {{ClickHelper.TrimStart()}}
             public static void AssertOnOneOf(IPage page, params string[] bases)
             {
                 var path = new Uri(page.Url).AbsolutePath;
