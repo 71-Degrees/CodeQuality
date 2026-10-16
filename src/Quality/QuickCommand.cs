@@ -29,8 +29,9 @@ internal static class QuickCommand
         var commit = options.Text("--commit", string.Empty);
         var files = commit.Length > 0 ? await ChangedFiles.OfCommitAsync(root, commit) : await ChangedFiles.FindAsync(root, since.Length == 0 ? null : since);
         var changed = ChangedFiles.Sources(files, config);
-        Console.WriteLine($"Quick check of what changed since {(since.Length == 0 ? "HEAD" : since)}: {changed.Count} C#/Razor file(s).");
-        if (changed.Count == 0)
+        var scripts = ChangedFiles.BrowserScripts(files);
+        Console.WriteLine($"Quick check of what changed since {(since.Length == 0 ? "HEAD" : since)}: {changed.Count} C#/Razor file(s), {scripts.Count} browser script(s).");
+        if (changed.Count == 0 && scripts.Count == 0)
         {
             Console.WriteLine("Nothing to check. (The full check - `quality` and the test suite - is for the push.)");
             return 0;
@@ -41,8 +42,11 @@ internal static class QuickCommand
             Console.WriteLine($"  {(file.IsTest ? "test  " : "source")} {file.Relative}");
         }
 
+        // A changed browser script is checked the way the push checks all of them (type check and eslint run over the whole script folder, a few seconds), so a script-only change is no longer "nothing to check".
+        var worst = scripts.Count > 0 ? await ScriptsOfChanged(root, config, scripts) : 0;
+
         // --no-smells: the push check already ran the whole-repository smells ratchet, so only the tests are wanted here.
-        var worst = options.Flag("--no-smells") ? 0 : SmellsOfChanged(root, options, config, changed);
+        worst = Math.Max(worst, options.Flag("--no-smells") ? 0 : SmellsOfChanged(root, options, config, changed));
         if (!options.Flag("--no-tests") || options.Flag("--browser"))
         {
             worst = Math.Max(worst, await TestsOfChanged(root, options, config, changed));
@@ -51,6 +55,20 @@ internal static class QuickCommand
         Console.WriteLine();
         Console.WriteLine($"{(worst == 0 ? "Quick check clean" : worst == 1 ? "Something new, worse or failing needs a look" : "A check could not run")} ({clock.Elapsed.TotalSeconds:0.#} s). The full check and the whole test suite are still the gate before a push.");
         return worst;
+    }
+
+    private static async Task<int> ScriptsOfChanged(string root, ToolConfig config, IReadOnlyList<string> scripts)
+    {
+        Console.WriteLine();
+        Console.WriteLine("== Browser scripts (type check + eslint) - changed:");
+        foreach (var script in scripts)
+        {
+            Console.WriteLine($"  {script}");
+        }
+
+        var (ok, summary) = await Scripts.RunAsync(root, config);
+        Console.WriteLine(summary);
+        return ok ? 0 : 1;
     }
 
     private static int SmellsOfChanged(string root, Options options, ToolConfig config, IReadOnlyList<ChangedSource> changed)

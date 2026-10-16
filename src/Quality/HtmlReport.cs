@@ -493,7 +493,7 @@ function drawAll() {
 
 // crawl + scripts
 let extra = '';
-if (D.scripts) extra += `<h2>Browser scripts</h2><pre>${esc(D.scripts)}</pre>`;
+if (D.scripts) extra += `<h2>Browser scripts <small>(last run ${esc(when(D.ranAt.scripts))})</small></h2><pre>${esc(D.scripts)}</pre>`;
 if (D.crawl) {
   extra += `<h2>Site crawl: ${esc(D.crawl.url)}</h2><div class="dim">${D.crawl.pages} pages. Same problem on many pages is one row.</div><div class="scroll"><table id="crawl"></table></div>`;
 }

@@ -33,6 +33,12 @@ internal static class ChangedFiles
             .ToList();
     }
 
+    /// <summary>The browser scripts among them (JavaScript or TypeScript under a web root, not a vendored library or a build folder).</summary>
+    internal static IReadOnlyList<string> BrowserScripts(IEnumerable<string> files) =>
+        [.. files.Where(f => (f.EndsWith(".js", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mjs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".ts", StringComparison.OrdinalIgnoreCase))
+            && f.Contains("wwwroot/", StringComparison.OrdinalIgnoreCase) && !f.Contains("/lib/", StringComparison.OrdinalIgnoreCase) && !f.Contains("node_modules/", StringComparison.Ordinal)
+            && !f.Contains("/bin/", StringComparison.Ordinal) && !f.Contains("/obj/", StringComparison.Ordinal) && !f.EndsWith(".min.js", StringComparison.OrdinalIgnoreCase))];
+
     /// <summary>The C# and Razor files among them that the full scan would also look at: under a source or test folder and not in a skipped place.</summary>
     internal static IReadOnlyList<ChangedSource> Sources(IEnumerable<string> files, ToolConfig config)
     {
