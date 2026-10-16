@@ -14,6 +14,9 @@ internal sealed record TestPlan(IReadOnlyDictionary<string, IReadOnlyList<string
 {
     /// <summary>The functions of the site the change touches (when the site lists its functions): what a person would walk to see the change work.</summary>
     public IReadOnlyList<FeatureFunction> Functions { get; init; } = [];
+
+    /// <summary>Why each selected test class was selected (class name -> the first reason found), so a selection that looks too big can be read instead of guessed at.</summary>
+    public IReadOnlyDictionary<string, string> Why { get; init; } = new Dictionary<string, string>();
 }
 
 /// <summary>
@@ -29,10 +32,27 @@ internal static partial class TestSelection
     [GeneratedRegex(@"\b(?:class|record|struct|interface|enum)\s+(?<name>[A-Za-z_]\w*)")]
     private static partial Regex Declaration();
 
+    // Comments and literals, found left to right so a quote inside a comment or a slash pair inside a string is not mistaken for the start of the other. Words in them ("a class that ...") are not declarations.
+    [GeneratedRegex(@"""""""[\s\S]*?""""""|@""(?:[^""]|"""")*""|\$?""(?:\\.|[^""\\\n])*""|'(?:\\.|[^'\\\n])'|/\*[\s\S]*?\*/|//[^\n]*|@\*[\s\S]*?\*@|<!--[\s\S]*?-->")]
+    private static partial Regex CommentsAndLiterals();
+
+    /// <summary>The code of a file with its comments and literals blanked; of a Razor file, only its <c>@code</c> block (the markup is prose and tags, and "a class of its own" there is not a class).</summary>
+    internal static string CodeOnly(string relativePath, string text)
+    {
+        var stripped = CommentsAndLiterals().Replace(text, " ");
+        if (!relativePath.EndsWith(".razor", StringComparison.OrdinalIgnoreCase))
+        {
+            return stripped;
+        }
+
+        var at = stripped.IndexOf("@code", StringComparison.Ordinal);
+        return at < 0 ? string.Empty : stripped[at..];
+    }
+
     /// <summary>The type names a file declares; a Razor page or component is also known by its file name.</summary>
     internal static IReadOnlyList<string> DeclaredNames(string relativePath, string text)
     {
-        var names = Declaration().Matches(text).Select(m => m.Groups["name"].Value).ToList();
+        var names = Declaration().Matches(CodeOnly(relativePath, text)).Select(m => m.Groups["name"].Value).ToList();
         if (relativePath.EndsWith(".razor", StringComparison.OrdinalIgnoreCase))
         {
             names.Add(Path.GetFileNameWithoutExtension(relativePath));
@@ -42,10 +62,13 @@ internal static partial class TestSelection
     }
 
     /// <summary>Test classes among a file's declarations: those in a file that holds at least one test (a [Fact], [Theory] or the site's own variants such as [BrowserFact]).</summary>
-    internal static IReadOnlyList<string> TestClasses(string text) =>
-        Regex.IsMatch(text, @"\[(?:\w+\.)?\w*(?:Fact|Theory)\b")
-            ? Declaration().Matches(text).Select(m => m.Groups["name"].Value).Distinct(StringComparer.Ordinal).ToList()
+    internal static IReadOnlyList<string> TestClasses(string text)
+    {
+        var code = CommentsAndLiterals().Replace(text, " ");
+        return Regex.IsMatch(code, @"\[(?:\w+\.)?\w*(?:Fact|Theory)\b")
+            ? Declaration().Matches(code).Select(m => m.Groups["name"].Value).Distinct(StringComparer.Ordinal).ToList()
             : [];
+    }
 
     [GeneratedRegex(@"@page\s+""(?<route>/[^""{]*)")]
     private static partial Regex PageDirective();
@@ -125,6 +148,7 @@ internal static partial class TestSelection
         var changedTests = changed.Where(c => c.IsTest).Select(c => Path.GetFullPath(Path.Combine(root, c.Relative))).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var byProject = new Dictionary<string, IReadOnlyList<string>>();
+        var why = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var project in testProjects)
         {
             var classes = new List<string>();
@@ -132,11 +156,18 @@ internal static partial class TestSelection
             {
                 var text = File.ReadAllText(path);
                 var tests = TestClasses(text);
-                var direct = tests.Count == 0 ? [] : names.Where(n => n.Names.Any(name => Mentions(text, name))).Select(n => n.Relative).ToList();
-                if (tests.Count > 0 && (direct.Count > 0 || tests.Any(functionTests.Contains) || changedTests.Contains(Path.GetFullPath(path))))
+                var direct = tests.Count == 0 ? [] : names.Select(n => (n.Relative, Hit: n.Names.FirstOrDefault(name => Mentions(text, name)))).Where(n => n.Hit is not null).ToList();
+                var byFunction = tests.FirstOrDefault(functionTests.Contains);
+                var edited = changedTests.Contains(Path.GetFullPath(path));
+                if (tests.Count > 0 && (direct.Count > 0 || byFunction is not null || edited))
                 {
                     classes.AddRange(tests);
-                    reached.UnionWith(direct);
+                    reached.UnionWith(direct.Select(d => d.Relative));
+                    var reason = direct.Count > 0 ? $"mentions {direct[0].Hit} (from {Path.GetFileName(direct[0].Relative)})" : byFunction is not null ? $"named by a function of the site ({byFunction})" : "the test file itself changed";
+                    foreach (var test in tests)
+                    {
+                        why.TryAdd(test, reason);
+                    }
                 }
             }
 
@@ -146,7 +177,7 @@ internal static partial class TestSelection
             }
         }
 
-        return new TestPlan(byProject, wanted.Select(w => w.Relative).Where(f => !reached.Contains(f)).ToList()) { Functions = touched.DistinctBy(f => f.Id).ToList() };
+        return new TestPlan(byProject, wanted.Select(w => w.Relative).Where(f => !reached.Contains(f)).ToList()) { Functions = touched.DistinctBy(f => f.Id).ToList(), Why = why };
     }
 
     /// <summary>The addresses a changed file stands for: a page its own and the pages that show it (the home page counts), a C# file the routes it names.</summary>
@@ -207,7 +238,8 @@ internal static partial class TestSelection
     }
 
     /// <summary>The dotnet test filter that runs just these classes (xunit: <c>FullyQualifiedName~A|FullyQualifiedName~B</c>).</summary>
-    internal static string Filter(IEnumerable<string> classes) => string.Join("|", classes.Select(c => "FullyQualifiedName~" + c));
+    /// <remarks>A test's full name is Namespace.Class.Method (Outer+Inner for a nested class), so the class is looked for between its separators: a helper called "Environment" must not run every test that has the word somewhere in its name.</remarks>
+    internal static string Filter(IEnumerable<string> classes) => string.Join("|", classes.SelectMany(c => new[] { $"FullyQualifiedName~.{c}.", $"FullyQualifiedName~+{c}." }));
 
     private static bool Mentions(string text, string name) => Regex.IsMatch(text, $@"\b{Regex.Escape(name)}\b");
 

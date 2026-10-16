@@ -112,7 +112,13 @@ internal static class QuickCommand
             return PrintPlan(root, config, plan);
         }
 
-        var worst = browser;
+        return Math.Max(browser, await RunSelectedAsync(root, options, plan));
+    }
+
+    /// <summary>Runs each project's selected test classes (just those, by filter) and reports each project's own summary line.</summary>
+    private static async Task<int> RunSelectedAsync(string root, Options options, TestPlan plan)
+    {
+        var worst = 0;
         foreach (var (project, classes) in plan.ClassesByProject)
         {
             var name = Path.GetFileNameWithoutExtension(project);
@@ -155,6 +161,10 @@ internal static class QuickCommand
             var inProject = index.Where(c => c.Project == name).ToList();
             var selected = inProject.Where(c => classes.Contains(c.Name)).Sum(c => c.Tests.Count);
             Console.WriteLine($"PLAN {name}: {selected} of {inProject.Sum(c => c.Tests.Count)} tests ({classes.Count} of {inProject.Count} classes)");
+            foreach (var group in classes.GroupBy(c => plan.Why.TryGetValue(c, out var why) ? why : "selected").OrderByDescending(g => g.Count()))
+            {
+                Console.WriteLine($"  {group.Count(),3} class(es): {group.Key}: {string.Join(", ", group.Take(6))}{(group.Count() > 6 ? ", ..." : string.Empty)}");
+            }
         }
 
         return 0;

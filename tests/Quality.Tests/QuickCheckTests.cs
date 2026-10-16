@@ -41,6 +41,31 @@ public sealed class QuickCheckTests : IDisposable
     }
 
     [Fact]
+    public void WordsInCommentsAndStrings_AreNotDeclarations()
+    {
+        const string source = """
+            /// <summary>This is a class that does it without a fuss.</summary>
+            public sealed class RealTests
+            {
+                // a record is kept for each game, and an enum is not needed
+                private const string Note = "a class like this one";
+                [Fact] public void A() { }
+            }
+            """;
+
+        Assert.Equal(["RealTests"], TestSelection.TestClasses(source));
+        Assert.Equal(["RealTests"], TestSelection.DeclaredNames("src/Core/Real.cs", source));
+    }
+
+    [Fact]
+    public void OfARazorFile_OnlyTheCodeBlockDeclaresAnything()
+    {
+        const string razor = "<p>a class of its own with a record of every game</p>\n@* a struct in a comment *@\n@code { private sealed record Entry(int Id); }";
+
+        Assert.Equal(["Entry", "Page"], TestSelection.DeclaredNames("src/Web/Pages/Page.razor", razor).Order());
+    }
+
+    [Fact]
     public void DeclaredNames_AreTheTypesAFileDefines_AndARazorPageIsItsFileName()
     {
         var names = TestSelection.DeclaredNames("src/Web/Pages/Passage.razor", "@page \"/passage\"\n@code { private sealed record Entry(int Id); }");
@@ -107,6 +132,6 @@ public sealed class QuickCheckTests : IDisposable
     [Fact]
     public void TheFilter_RunsExactlyTheseClasses()
     {
-        Assert.Equal("FullyQualifiedName~FooTests|FullyQualifiedName~BarTests", TestSelection.Filter(["FooTests", "BarTests"]));
+        Assert.Equal("FullyQualifiedName~.FooTests.|FullyQualifiedName~+FooTests.|FullyQualifiedName~.BarTests.|FullyQualifiedName~+BarTests.", TestSelection.Filter(["FooTests", "BarTests"]));
     }
 }
