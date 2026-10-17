@@ -207,6 +207,20 @@ public sealed class TestResultsTests : IDisposable
     }
 
     [Fact]
+    public void BrowserProjectsRunLast_EvenWhenTheirNameSortsFirst()
+    {
+        foreach (var name in new[] { "A.Browser.Tests", "Z.Core.Tests", "M.Web.Tests" })
+        {
+            Directory.CreateDirectory(Path.Combine(_root, "tests", name));
+            File.WriteAllText(Path.Combine(_root, "tests", name, name + ".csproj"), "<Project />");
+        }
+
+        var order = TestRunner.Projects(_root, new ToolConfig(), includeBrowser: true).Select(p => Path.GetFileNameWithoutExtension(p));
+
+        Assert.Equal(["M.Web.Tests", "Z.Core.Tests", "A.Browser.Tests"], order);
+    }
+
+    [Fact]
     public void TheTestNumbersInASnapshotCompareByTotalFailuresAndCoverage()
     {
         var a = new TestCounts(100, 0, 0.5);

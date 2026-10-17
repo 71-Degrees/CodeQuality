@@ -21,11 +21,15 @@ internal static class TestRunner
                 .SelectMany(Directory.EnumerateDirectories).SelectMany(d => Directory.EnumerateFiles(d, "*.csproj"));
         return found
             .Where(p => includeBrowser || !TestResults.IsBrowserProject(Path.GetFileNameWithoutExtension(p)))
-            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(p => TestResults.IsBrowserProject(Path.GetFileNameWithoutExtension(p)))   // quick projects first, so a failure shows in seconds and not after the browser tests
+            .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
-    /// <summary>Runs each project, one after another. Returns the exit code: 0 when every test passed, 1 when any failed, 2 when a project could not be run at all.</summary>
+    /// <summary>
+    /// Runs each project, one after another, quick ones first. Stops at the first project that fails (the push is lost anyway, and the rest only costs minutes); <c>--keep-going</c> runs them all.
+    /// Returns the exit code: 0 when every test passed, 1 when any failed, 2 when a project could not be run at all.
+    /// </summary>
     internal static async Task<int> RunAsync(RunContext context)
     {
         var (root, options, say, _, config) = context;
@@ -52,9 +56,30 @@ internal static class TestRunner
             var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
             say("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
             worst = Math.Max(worst, code == 0 ? 0 : File.Exists(Path.Combine(results, "results.trx")) ? 1 : 2);
+            if (worst > 0 && !options.Flag("--keep-going"))
+            {
+                SkipRest(root, projects.Skip(projects.IndexOf(project) + 1).ToList(), say);
+                break;
+            }
         }
 
         return worst;
+    }
+
+    // The projects not run keep no results from an earlier run: the report would mix this push's failure with another push's numbers.
+    private static void SkipRest(string root, List<string> skipped, Action<string> say)
+    {
+        if (skipped.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var project in skipped)
+        {
+            ClearPreviousResults(Path.Combine(TestResults.ResultsFolder(root), Path.GetFileNameWithoutExtension(project)));
+        }
+
+        say($"Stopped at the first failing project; not run: {string.Join(", ", skipped.Select(p => Path.GetFileNameWithoutExtension(p)))} (--keep-going runs them all).");
     }
 
     // Each run replaces the project's own results (regenerated output, like bin and obj): the Cobertura file is written into a new folder per run, so the old ones would pile up and be read as one.
