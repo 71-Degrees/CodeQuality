@@ -40,6 +40,7 @@ using CodeQuality.Quality;
 internal static class Program
 {
     private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick", "setup", "init", "browser" };
+    private static readonly string[] LiveCommands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "quick" };
 
     private static async Task<int> Main(string[] args)
     {
@@ -54,11 +55,33 @@ internal static class Program
 
         var options = new Options(args);
         var root = Repo.FindRoot();
-        if (await RunStandaloneAsync(command, root, options) is { } standalone)
-        {
-            return standalone;
-        }
 
+        // The live view covers the commands that run checks; the others (history, features, setup...) are over in a moment.
+        using var live = LiveCommands.Contains(command) ? LiveSession.Begin(root, command, options) : LiveRun.Off;
+        var finished = false;
+        try
+        {
+            var worst = await RunStandaloneAsync(command, root, options, live) ?? await RunRecordedAsync(command, root, options, live);
+            finished = true;
+            if (live != LiveRun.Off)
+            {
+                Console.WriteLine(live.Complete(worst));
+            }
+
+            return worst;
+        }
+        finally
+        {
+            if (!finished)
+            {
+                live.Abort("it ended without a result (an error is printed above)");
+            }
+        }
+    }
+
+    /// <summary>The checks that are recorded: runs them, then writes the report, the timeline and the dashboard.</summary>
+    private static async Task<int> RunRecordedAsync(string command, string root, Options options, LiveRun live)
+    {
         var report = new StringBuilder();
         var config = ToolConfig.Load(root);
         var collected = Collected.Load(root);
@@ -69,24 +92,9 @@ internal static class Program
         }
 
         Say($"Quality check, {DateTime.Now:yyyy-MM-dd HH:mm}");
-        var worst = await RunChecksAsync(command, new RunContext(root, options, Say, collected, config));
-
-        TakeLatestResults(root, config, collected);
-        collected.Save(root);
-        var history = await RecordHistoryAsync(root, collected);
-        var html = await HtmlReport.WriteAsync(root, collected, Baseline.Load(root), history, config, options.Flag("--include-tests"));
-        Say();
-        if (history.Summary() is { } trend)
-        {
-            Say(trend);
-        }
-
-        Say($"HTML report: {html}");
-        Say($"Dashboard: {await Dashboard.WriteAsync(root, history, config)}");
-        if (HtmlReport.ShouldOpen(config.OpenReport, worst, options.Flag("--open"), options.Flag("--no-open")))
-        {
-            HtmlReport.Open(html, force: options.Flag("--open"));
-        }
+        var context = new RunContext(root, options, Say, collected, config) { Live = live };
+        var worst = await RunChecksAsync(command, context);
+        await live.RunStageAsync(LiveSteps.Report, "Report, timeline and dashboard", () => WriteReportsAsync(context, worst));
 
         Say();
         Say(worst switch { 0 => "All clear.", 1 => "Something new or worse needs a look.", _ => "A check could not run." });
@@ -96,6 +104,30 @@ internal static class Program
         File.WriteAllText(file, report.ToString());
         Console.WriteLine($"Report: {file}");
         return worst;
+    }
+
+    /// <summary>Saves what the run collected and writes the HTML report, the timeline entry and the dashboard; opens the report when the settings say so. Returns 0: the verdict is the checks', not the report's.</summary>
+    private static async Task<int> WriteReportsAsync(RunContext context, int worst)
+    {
+        var (root, options, say, collected, config) = context;
+        TakeLatestResults(root, config, collected);
+        collected.Save(root);
+        var history = await RecordHistoryAsync(root, collected);
+        var html = await HtmlReport.WriteAsync(root, collected, Baseline.Load(root), history, config, options.Flag("--include-tests"));
+        say(string.Empty);
+        if (history.Summary() is { } trend)
+        {
+            say(trend);
+        }
+
+        say($"HTML report: {html}");
+        say($"Dashboard: {await Dashboard.WriteAsync(root, history, config)}");
+        if (HtmlReport.ShouldOpen(config.OpenReport, worst, options.Flag("--open"), options.Flag("--no-open")))
+        {
+            HtmlReport.Open(html, force: options.Flag("--open"));
+        }
+
+        return 0;
     }
 
     // --include-parked: look at the code, tools and tests quality.json has set aside (the same switch as the environment variable, so every child process of this run agrees).
@@ -120,11 +152,11 @@ internal static class Program
     }
 
     /// <summary>The commands that are not one of the recorded checks (no report, no timeline entry of their own): history, features, quick and setup. Null for the rest.</summary>
-    private static async Task<int?> RunStandaloneAsync(string command, string root, Options options) => command switch
+    private static async Task<int?> RunStandaloneAsync(string command, string root, Options options, LiveRun live) => command switch
     {
         "history" => await HistoryCommand(root, options),
         "features" => await FeaturesCommand(root, options),
-        "quick" => await QuickCommand.RunAsync(root, options, ToolConfig.Load(root)),
+        "quick" => await QuickCommand.RunAsync(root, options, ToolConfig.Load(root), live),
         "setup" => SetupCommand.Run(root, options, ToolConfig.Load(root)),
         "browser" => BrowserCommand.Run(root, options, ToolConfig.Load(root)),
         "init" => await InitCommand.RunAsync(root, ToolConfig.Load(root), options.Flag("--accept-baselines")),
@@ -217,40 +249,85 @@ internal static class Program
         var worst = 0;
         var all = command == "all";
         var standard = command == "default" || all;
-        if (standard || command == "smells")
+        var smells = standard || command == "smells";
+        var analyzers = standard || command == "analyzers";
+        var scripts = standard || command == "scripts";
+        var tests = all || command == "tests";
+        var crawl = all || command == "crawl";
+        DeclareSteps(context, smells, analyzers, scripts, tests, crawl);
+
+        if (smells)
         {
-            worst = Math.Max(worst, SmellsStep(context));
+            worst = Math.Max(worst, await context.Live.RunStageAsync(LiveSteps.Smells, "Code smells", () => Task.FromResult(SmellsStep(context))));
         }
 
-        if (standard || command == "analyzers")
+        if (analyzers)
         {
-            worst = Math.Max(worst, await AnalyzersStep(context));
+            worst = Math.Max(worst, await context.Live.RunStageAsync(LiveSteps.Analyzers, ".NET analyzers (a full build)", () => AnalyzersStep(context)));
         }
 
-        if (standard || command == "scripts")
+        if (scripts)
         {
-            say(string.Empty);
-            say("== Browser scripts (type check + eslint)");
-            var (ok, summary) = await Scripts.RunAsync(root, config);
-            say(summary);
-            collected.Scripts = summary;
-            collected.ScriptsAt = Collected.Now;
-            worst = Math.Max(worst, ok ? 0 : 1);
+            worst = Math.Max(worst, await context.Live.RunStageAsync(LiveSteps.Scripts, "Browser scripts (type check and eslint)", () => ScriptsStep(context)));
         }
 
-        if (all || command == "tests")
+        if (tests)
         {
             say(string.Empty);
             say("== Tests and coverage (every test project, with the coverage collector)");
             worst = Math.Max(worst, await TestRunner.RunAsync(context));
         }
 
-        if (all || command == "crawl")
+        if (crawl)
         {
-            worst = Math.Max(worst, await CrawlStep(context));
+            worst = Math.Max(worst, await context.Live.RunStageAsync(LiveSteps.Crawl, "Site crawl", () => CrawlStep(context)));
         }
 
         return worst;
+    }
+
+    // Lists every step up front, in running order, so the live page shows what is still to come and the estimate covers the whole run.
+    private static void DeclareSteps(RunContext context, bool smells, bool analyzers, bool scripts, bool tests, bool crawl)
+    {
+        var live = context.Live;
+        var steps = new List<(bool On, string Id, string Label)>
+        {
+            (smells, LiveSteps.Smells, "Code smells"),
+            (analyzers, LiveSteps.Analyzers, ".NET analyzers (a full build)"),
+            (scripts, LiveSteps.Scripts, "Browser scripts (type check and eslint)"),
+        };
+        foreach (var (on, id, label) in steps.Where(s => s.On))
+        {
+            live.Declare(id, label);
+        }
+
+        if (tests)
+        {
+            foreach (var project in TestRunner.Projects(context.Root, context.Config, context.Options.Flag("--include-browser")))
+            {
+                var name = Path.GetFileNameWithoutExtension(project);
+                live.Declare(LiveSteps.Tests(name), $"Tests: {name}");
+            }
+        }
+
+        if (crawl)
+        {
+            live.Declare(LiveSteps.Crawl, "Site crawl");
+        }
+
+        live.Declare(LiveSteps.Report, "Report, timeline and dashboard");
+    }
+
+    private static async Task<int> ScriptsStep(RunContext context)
+    {
+        var (root, _, say, collected, config) = context;
+        say(string.Empty);
+        say("== Browser scripts (type check + eslint)");
+        var (ok, summary) = await Scripts.RunAsync(root, config);
+        say(summary);
+        collected.Scripts = summary;
+        collected.ScriptsAt = Collected.Now;
+        return ok ? 0 : 1;
     }
 
     private static int SmellsStep(RunContext context)
@@ -262,7 +339,7 @@ internal static class Program
         collected.Smells = findings;
         collected.SmellsAt = Collected.Now;
         collected.RanThisRun.Add("smells");
-        return Ratchet(root, options, say, findings, key => !key.StartsWith("build/", StringComparison.Ordinal), "smells");
+        return Ratchet(context, findings, key => !key.StartsWith("build/", StringComparison.Ordinal), "smells", LiveSteps.Smells);
     }
 
     private static async Task<int> AnalyzersStep(RunContext context)
@@ -280,12 +357,13 @@ internal static class Program
         collected.Analyzers = findings;
         collected.AnalyzersAt = Collected.Now;
         collected.RanThisRun.Add("analyzers");
-        return Ratchet(root, options, say, findings, key => key.StartsWith("build/", StringComparison.Ordinal), "analyzers");
+        return Ratchet(context, findings, key => key.StartsWith("build/", StringComparison.Ordinal), "analyzers", LiveSteps.Analyzers);
     }
 
     /// <summary>Compares findings with the baseline: prints a summary of everything, and the detail of what is new or worse. Returns the exit code.</summary>
-    private static int Ratchet(string root, Options options, Action<string> say, IReadOnlyList<Finding> findings, Func<string, bool> ownKeys, string what)
+    private static int Ratchet(RunContext context, IReadOnlyList<Finding> findings, Func<string, bool> ownKeys, string what, string stage)
     {
+        var (root, options, say, _, _) = context;
         var top = options.Int("--top", 20);
         var byRule = findings.GroupBy(f => f.Rule).OrderByDescending(g => g.Count());
         say($"{findings.Count} finding(s): " + string.Join(", ", byRule.Select(g => $"{g.Key} {g.Count()}")));
@@ -317,6 +395,8 @@ internal static class Program
 
         var comparison = baseline.Compare(findings, ownKeys);
         say($"Against the baseline: {comparison.New.Count} new, {comparison.Worse.Count} worse, {comparison.Fixed.Count} fixed since it was recorded.");
+        context.Live.AddFindings(stage, comparison.New, comparison.Worse);
+        context.Live.Note(stage, $"{findings.Count} finding(s); {comparison.New.Count} new, {comparison.Worse.Count} worse, {comparison.Fixed.Count} fixed");
         foreach (var f in comparison.New.Take(top))
         {
             say($"  NEW   {f.Rule,-14} {f.File}:{f.Line}  {f.Message}");
@@ -398,4 +478,8 @@ internal sealed class Options
 }
 
 /// <summary>Everything one run of the checks works with, so each step takes one argument instead of five.</summary>
-internal sealed record RunContext(string Root, Options Options, Action<string> Say, Collected Collected, ToolConfig Config);
+internal sealed record RunContext(string Root, Options Options, Action<string> Say, Collected Collected, ToolConfig Config)
+{
+    /// <summary>The live view of this run; a property so the many places that take a context apart by position are untouched.</summary>
+    public LiveRun Live { get; init; } = LiveRun.Off;
+}

@@ -19,7 +19,7 @@ internal static class QuickCommand
     /// <summary>The same name Quality.Browser's BrowserRunLog.QuickRunVariable looks for (the two projects do not reference each other).</summary>
     private const string QuickRunVariable = "QUALITY_QUICK";
 
-    internal static async Task<int> RunAsync(string root, Options options, ToolConfig config)
+    internal static async Task<int> RunAsync(string root, Options options, ToolConfig config, LiveRun live)
     {
         var clock = Stopwatch.StartNew();
 
@@ -43,13 +43,13 @@ internal static class QuickCommand
         }
 
         // A changed browser script is checked the way the push checks all of them (type check and eslint run over the whole script folder, a few seconds), so a script-only change is no longer "nothing to check".
-        var worst = scripts.Count > 0 ? await ScriptsOfChanged(root, config, scripts) : 0;
+        var worst = scripts.Count > 0 ? await live.RunStageAsync(LiveSteps.QuickScripts, "Browser scripts (changed)", () => ScriptsOfChanged(root, config, scripts)) : 0;
 
         // --no-smells: the push check already ran the whole-repository smells ratchet, so only the tests are wanted here.
-        worst = Math.Max(worst, options.Flag("--no-smells") ? 0 : SmellsOfChanged(root, options, config, changed));
+        worst = Math.Max(worst, options.Flag("--no-smells") ? 0 : await live.RunStageAsync(LiveSteps.QuickSmells, "Code smells in the changed files", () => Task.FromResult(SmellsOfChanged(root, options, config, changed, live))));
         if (!options.Flag("--no-tests") || options.Flag("--browser"))
         {
-            worst = Math.Max(worst, await TestsOfChanged(root, options, config, changed));
+            worst = Math.Max(worst, await TestsOfChanged(root, options, config, changed, live));
         }
 
         Console.WriteLine();
@@ -71,7 +71,7 @@ internal static class QuickCommand
         return ok ? 0 : 1;
     }
 
-    private static int SmellsOfChanged(string root, Options options, ToolConfig config, IReadOnlyList<ChangedSource> changed)
+    private static int SmellsOfChanged(string root, Options options, ToolConfig config, IReadOnlyList<ChangedSource> changed, LiveRun live)
     {
         Console.WriteLine();
         Console.WriteLine("== Code smells in the changed files");
@@ -80,6 +80,7 @@ internal static class QuickCommand
         var baseline = Baseline.Load(root);
         var comparison = baseline.Compare(findings, key => !key.StartsWith("build/", StringComparison.Ordinal) && paths.Contains(FileOf(key)));
         Console.WriteLine($"{findings.Count} finding(s) in them; against the baseline: {comparison.New.Count} new, {comparison.Worse.Count} worse, {comparison.Fixed.Count} fixed.");
+        live.AddFindings(LiveSteps.QuickSmells, comparison.New, comparison.Worse);
         foreach (var f in comparison.New)
         {
             Console.WriteLine($"  NEW   {f.Rule,-14} {f.File}:{f.Line}  {f.Message}");
@@ -98,7 +99,7 @@ internal static class QuickCommand
         return comparison.Clean ? 0 : 1;
     }
 
-    private static async Task<int> TestsOfChanged(string root, Options options, ToolConfig config, IReadOnlyList<ChangedSource> changed)
+    private static async Task<int> TestsOfChanged(string root, Options options, ToolConfig config, IReadOnlyList<ChangedSource> changed, LiveRun live)
     {
         Console.WriteLine();
         Console.WriteLine("== Tests that mention the changed code");
@@ -114,7 +115,7 @@ internal static class QuickCommand
             Console.WriteLine($"  no test is about anything in {file}");
         }
 
-        var browser = options.Flag("--browser") && !options.Flag("--plan") ? await BrowserOfChanged(root, config, plan) : 0;
+        var browser = options.Flag("--browser") && !options.Flag("--plan") ? await live.RunStageAsync("quick: browser journeys", "Browser journeys of the changed functions", () => BrowserOfChanged(root, config, plan)) : 0;
         if (options.Flag("--no-tests"))
         {
             return browser;   // --no-tests --browser: just the journeys
@@ -136,25 +137,38 @@ internal static class QuickCommand
             return PrintPlan(root, config, plan);
         }
 
-        return Math.Max(browser, await RunSelectedAsync(root, options, plan));
+        return Math.Max(browser, await RunSelectedAsync(root, options, plan, live));
     }
 
     /// <summary>Runs each project's selected test classes (just those, by filter) and reports each project's own summary line.</summary>
-    private static async Task<int> RunSelectedAsync(string root, Options options, TestPlan plan)
+    private static async Task<int> RunSelectedAsync(string root, Options options, TestPlan plan, LiveRun live)
     {
+        foreach (var project in plan.ClassesByProject.Keys)
+        {
+            var declared = Path.GetFileNameWithoutExtension(project);
+            live.Declare(LiveSteps.QuickTests(declared), $"Tests: {declared} (the ones for the change)");
+        }
+
         var worst = 0;
         foreach (var (project, classes) in plan.ClassesByProject)
         {
             var name = Path.GetFileNameWithoutExtension(project);
-            Console.WriteLine($"Running {name}: {classes.Count} test class(es)...");
-            var noBuild = options.Flag("--no-build") ? " --no-build" : string.Empty;
-            var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q{noBuild} --filter \"{TestSelection.Filter(classes)}\"", root, 1800);
-            var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
-            Console.WriteLine("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
-            worst = Math.Max(worst, code == 0 ? 0 : summary is null ? 2 : 1);
+            worst = Math.Max(worst, await live.RunStageAsync(LiveSteps.QuickTests(name), $"Tests: {name} (the ones for the change)", () => RunSelectedProjectAsync(root, options, project, classes, live)));
         }
 
         return worst;
+    }
+
+    private static async Task<int> RunSelectedProjectAsync(string root, Options options, string project, IReadOnlyCollection<string> classes, LiveRun live)
+    {
+        var name = Path.GetFileNameWithoutExtension(project);
+        Console.WriteLine($"Running {name}: {classes.Count} test class(es)...");
+        var noBuild = options.Flag("--no-build") ? " --no-build" : string.Empty;
+        var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q{noBuild} --filter \"{TestSelection.Filter(classes)}\"", root, 1800);
+        var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
+        Console.WriteLine("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
+        live.Counts(LiveSteps.QuickTests(name), TestSummaryLine.Parse(summary));
+        return code == 0 ? 0 : summary is null ? 2 : 1;
     }
 
     /// <summary>The generated journeys are driven function by function (<see cref="BrowserOfChanged"/>); selecting their test class by name as well would run every journey, which is minutes of browser for a small change.</summary>

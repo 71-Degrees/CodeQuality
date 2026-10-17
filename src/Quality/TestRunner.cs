@@ -44,21 +44,10 @@ internal static class TestRunner
         foreach (var project in projects)
         {
             var name = Path.GetFileNameWithoutExtension(project);
-            var results = Path.Combine(TestResults.ResultsFolder(root), name);
-            ClearPreviousResults(results);
-
-            say($"Running {name}...");
-            var (code, output) = await Shell.RunAsync(
-                "dotnet",
-                $"test \"{project}\" --nologo -v q --collect:\"XPlat Code Coverage\" --logger \"trx;LogFileName=results.trx\" --results-directory \"{results}\"",
-                root,
-                1800);
-            var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
-            say("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
-            worst = Math.Max(worst, code == 0 ? 0 : File.Exists(Path.Combine(results, "results.trx")) ? 1 : 2);
+            worst = Math.Max(worst, await context.Live.RunStageAsync(LiveSteps.Tests(name), $"Tests: {name}", () => RunProjectAsync(context, project)));
             if (worst > 0 && !options.Flag("--keep-going"))
             {
-                SkipRest(root, projects.Skip(projects.IndexOf(project) + 1).ToList(), say);
+                SkipRest(context, projects.Skip(projects.IndexOf(project) + 1).ToList());
                 break;
             }
         }
@@ -66,8 +55,28 @@ internal static class TestRunner
         return worst;
     }
 
+    // One project with the coverage collector: 0 passed, 1 some test failed, 2 it did not run at all (no results file).
+    private static async Task<int> RunProjectAsync(RunContext context, string project)
+    {
+        var (root, _, say, _, _) = context;
+        var name = Path.GetFileNameWithoutExtension(project);
+        var results = Path.Combine(TestResults.ResultsFolder(root), name);
+        ClearPreviousResults(results);
+
+        say($"Running {name}...");
+        var (code, output) = await Shell.RunAsync(
+            "dotnet",
+            $"test \"{project}\" --nologo -v q --collect:\"XPlat Code Coverage\" --logger \"trx;LogFileName=results.trx\" --results-directory \"{results}\"",
+            root,
+            1800);
+        var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
+        say("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
+        context.Live.Counts(LiveSteps.Tests(name), TestSummaryLine.Parse(summary));
+        return code == 0 ? 0 : File.Exists(Path.Combine(results, "results.trx")) ? 1 : 2;
+    }
+
     // The projects not run keep no results from an earlier run: the report would mix this push's failure with another push's numbers.
-    private static void SkipRest(string root, List<string> skipped, Action<string> say)
+    private static void SkipRest(RunContext context, List<string> skipped)
     {
         if (skipped.Count == 0)
         {
@@ -76,10 +85,12 @@ internal static class TestRunner
 
         foreach (var project in skipped)
         {
-            ClearPreviousResults(Path.Combine(TestResults.ResultsFolder(root), Path.GetFileNameWithoutExtension(project)));
+            ClearPreviousResults(Path.Combine(TestResults.ResultsFolder(context.Root), Path.GetFileNameWithoutExtension(project)));
         }
 
-        say($"Stopped at the first failing project; not run: {string.Join(", ", skipped.Select(p => Path.GetFileNameWithoutExtension(p)))} (--keep-going runs them all).");
+        var names = skipped.Select(p => Path.GetFileNameWithoutExtension(p)).ToList();
+        context.Live.Skip(names.Select(n => (LiveSteps.Tests(n), $"Tests: {n}")), "not run: an earlier project failed");
+        context.Say($"Stopped at the first failing project; not run: {string.Join(", ", names)} (--keep-going runs them all).");
     }
 
     // Each run replaces the project's own results (regenerated output, like bin and obj): the Cobertura file is written into a new folder per run, so the old ones would pile up and be read as one.
