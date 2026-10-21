@@ -27,6 +27,28 @@ public sealed class ReportOpeningTests
     }
 
     [Fact]
+    public void TheLivePage_AsksAnOlderLiveTabToReload_AndClosesItself()
+    {
+        Assert.Contains("new BroadcastChannel('quality-live')", LivePage.Html);
+        Assert.Contains("window.close()", LivePage.Html);
+        Assert.Contains("type: 'reload'", LivePage.Html);
+    }
+
+    [Fact]
+    public void TheLiveViewUsesTheReuseWindow_UnlessOpenIsAsked()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "cq-live-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var page = Path.Combine(folder, "index.html");
+        var now = new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.True(HtmlReport.ShouldOpenNow(page, force: false, now));                   // the first run opens a tab
+        Assert.False(HtmlReport.ShouldOpenNow(page, force: false, now.AddMinutes(30)));   // the next one reuses it
+        Assert.True(HtmlReport.ShouldOpenNow(page, force: true, now.AddMinutes(31)));     // --open opens another
+        Assert.True(HtmlReport.ShouldOpenNow(page, force: false, now.AddHours(7)));       // an old one is not assumed to be open
+    }
+
+    [Fact]
     public void TheOpenFlagAlwaysOpens_AndNoOpenSwitchesTheSettingOff()
     {
         Assert.True(HtmlReport.ShouldOpen("never", 0, openFlag: true, noOpenFlag: false));

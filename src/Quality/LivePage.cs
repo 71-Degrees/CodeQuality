@@ -52,6 +52,25 @@ footer { margin-top:22px; color:var(--mute); font-size:13px; }
   <footer id="foot"></footer>
 </main>
 <script>
+// One live tab, not one per run: a page opened while another live page is open asks it to reload, then closes itself (Chrome lets a tab with no history close itself; if it cannot, it says so in its title).
+(function () {
+  try {
+    var channel = new BroadcastChannel('quality-live'), me = Math.random().toString(36).slice(2), elder = false;
+    channel.onmessage = function (e) {
+      var m = e.data || {};
+      if (m.type === 'hello' && m.id !== me) { channel.postMessage({ type: 'here', to: m.id }); }
+      else if (m.type === 'here' && m.to === me) { elder = true; }
+      else if (m.type === 'reload') { location.reload(); }
+    };
+    channel.postMessage({ type: 'hello', id: me });
+    setTimeout(function () {
+      if (!elder) { return; }
+      channel.postMessage({ type: 'reload' });
+      window.close();
+      document.title = 'Duplicate quality tab - close it (the other one is live)';
+    }, 400);
+  } catch (err) { /* no BroadcastChannel here: just a second tab */ }
+})();
 var last = null, timer = null;
 function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 function secs(a, b) { return Math.max(0, ((b ? new Date(b) : new Date()) - new Date(a)) / 1000); }

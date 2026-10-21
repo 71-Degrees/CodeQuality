@@ -35,7 +35,8 @@ internal static class LiveSession
         Console.WriteLine($"Live view: {new Uri(files.PagePath).AbsoluteUri}");
         if (!options.Flag("--no-open"))
         {
-            HtmlReport.Open(files.PagePath, force: true);
+            // The page refreshes itself every two seconds, so a tab opened lately is reused (HtmlReport's six-hour window); --open opens a fresh one.
+            HtmlReport.Open(files.PagePath, force: options.Flag("--open"));
         }
 
         return run;
