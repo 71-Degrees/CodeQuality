@@ -105,7 +105,9 @@ internal static class HtmlReport
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var page = Template.Replace("/*DATA*/", json, StringComparison.Ordinal).Replace("/*TITLE*/", System.Net.WebUtility.HtmlEncode(config.Title(root)), StringComparison.Ordinal);
         await File.WriteAllTextAsync(path, page);
-        File.Copy(path, Path.Combine(Repo.OutputRoot(root), "reports", "quality-latest.html"), overwrite: true);
+        var latest = Path.Combine(Repo.OutputRoot(root), "reports", "quality-latest.html");
+        File.Copy(path, latest, overwrite: true);
+        await StaticSnapshot.TryWriteAsync(latest);
         return path;
     }
 
