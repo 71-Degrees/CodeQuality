@@ -11,6 +11,13 @@ namespace CodeQuality.Quality;
 /// <summary>Runs the site's test projects with coverage and writes their results where <see cref="TestResults"/> reads them (<c>quality tests</c>).</summary>
 internal static class TestRunner
 {
+    /// <summary>The browser tests run with --include-browser, unless --browser-classes none says every class already has a pass to reuse (the caller, ship, keeps that record).</summary>
+    internal static bool IncludeBrowser(Options options) => options.Flag("--include-browser") && options.Text("--browser-classes", string.Empty) != "none";
+
+    /// <summary>Runs only these browser test classes (--browser-classes A,B: the ones with no earlier pass to reuse, picked by ship); without the option they all run.</summary>
+    private static string BrowserFilter(Options options, string name) =>
+        TestResults.IsBrowserProject(name) && options.Text("--browser-classes", string.Empty) is { Length: > 0 } classes && classes != "none" ? $" --filter \"{string.Join('|', classes.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => $"FullyQualifiedName~.{c}."))}\"" : string.Empty;
+
     /// <summary>The test projects to run: the configured ones, else every project one folder down under each test folder. Browser tests (a folder with "Browser" in its name) only run with --include-browser: they start the site and a browser.</summary>
     internal static List<string> Projects(string root, ToolConfig config, bool includeBrowser)
     {
@@ -33,7 +40,7 @@ internal static class TestRunner
     internal static async Task<int> RunAsync(RunContext context)
     {
         var (root, options, say, _, config) = context;
-        var projects = Projects(root, config, options.Flag("--include-browser"));
+        var projects = Projects(root, config, IncludeBrowser(options));
         if (projects.Count == 0)
         {
             say("No test projects found (set testProjects in quality/quality.json).");
@@ -58,7 +65,7 @@ internal static class TestRunner
     // One project with the coverage collector: 0 passed, 1 some test failed, 2 it did not run at all (no results file).
     private static async Task<int> RunProjectAsync(RunContext context, string project)
     {
-        var (root, _, say, _, _) = context;
+        var (root, options, say, _, _) = context;
         var name = Path.GetFileNameWithoutExtension(project);
         var results = Path.Combine(TestResults.ResultsFolder(root), name);
         ClearPreviousResults(results);
@@ -66,7 +73,7 @@ internal static class TestRunner
         say($"Running {name}...");
         var (code, output) = await Shell.RunAsync(
             "dotnet",
-            $"test \"{project}\" --nologo -v q --collect:\"XPlat Code Coverage\" --logger \"trx;LogFileName=results.trx\" --results-directory \"{results}\"",
+            $"test \"{project}\" --nologo -v q --collect:\"XPlat Code Coverage\" --logger \"trx;LogFileName=results.trx\" --results-directory \"{results}\"{BrowserFilter(options, name)}",
             root,
             1800);
         var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
