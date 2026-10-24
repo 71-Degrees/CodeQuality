@@ -11,12 +11,19 @@ namespace CodeQuality.Quality;
 /// <summary>Runs the site's test projects with coverage and writes their results where <see cref="TestResults"/> reads them (<c>quality tests</c>).</summary>
 internal static class TestRunner
 {
-    /// <summary>The browser tests run with --include-browser, unless --browser-classes none says every class already has a pass to reuse (the caller, ship, keeps that record).</summary>
-    internal static bool IncludeBrowser(Options options) => options.Flag("--include-browser") && options.Text("--browser-classes", string.Empty) != "none";
+    /// <summary>The projects to run: <see cref="Projects"/>, less the browser project whose classes all have a pass to reuse (--browser-classes none; the caller, ship, keeps that record).</summary>
+    internal static List<string> Selected(string root, ToolConfig config, Options options) =>
+        Projects(root, config, options.Flag("--include-browser"))
+            .Where(p => !(options.Text("--browser-classes", string.Empty) == "none" && ClassesApplyTo(options, Path.GetFileNameWithoutExtension(p))))
+            .ToList();
+
+    // --browser-classes-in <project> names the one browser project the class list belongs to; without it the list applies to every browser project.
+    private static bool ClassesApplyTo(Options options, string project) =>
+        TestResults.IsBrowserProject(project) && options.Text("--browser-classes-in", project) == project;
 
     /// <summary>Runs only these browser test classes (--browser-classes A,B: the ones with no earlier pass to reuse, picked by ship); without the option they all run.</summary>
     private static string BrowserFilter(Options options, string name) =>
-        TestResults.IsBrowserProject(name) && options.Text("--browser-classes", string.Empty) is { Length: > 0 } classes && classes != "none" ? $" --filter \"{string.Join('|', classes.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => $"FullyQualifiedName~.{c}."))}\"" : string.Empty;
+        ClassesApplyTo(options, name) && options.Text("--browser-classes", string.Empty) is { Length: > 0 } classes && classes != "none" ? $" --filter \"{string.Join('|', classes.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(c => $"FullyQualifiedName~.{c}."))}\"" : string.Empty;
 
     /// <summary>The test projects to run: the configured ones, else every project one folder down under each test folder. Browser tests (a folder with "Browser" in its name) only run with --include-browser: they start the site and a browser.</summary>
     internal static List<string> Projects(string root, ToolConfig config, bool includeBrowser)
@@ -40,7 +47,7 @@ internal static class TestRunner
     internal static async Task<int> RunAsync(RunContext context)
     {
         var (root, options, say, _, config) = context;
-        var projects = Projects(root, config, IncludeBrowser(options));
+        var projects = Selected(root, config, options);
         if (projects.Count == 0)
         {
             say("No test projects found (set testProjects in quality/quality.json).");

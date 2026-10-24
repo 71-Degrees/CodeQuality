@@ -303,7 +303,7 @@ internal static class Program
 
         if (tests)
         {
-            foreach (var project in TestRunner.Projects(context.Root, context.Config, TestRunner.IncludeBrowser(context.Options)))
+            foreach (var project in TestRunner.Selected(context.Root, context.Config, context.Options))
             {
                 var name = Path.GetFileNameWithoutExtension(project);
                 live.Declare(LiveSteps.Tests(name), $"Tests: {name}");
