@@ -84,4 +84,29 @@ public sealed class BrowserGeneratorTests
         var comment = project[(project.IndexOf("<!--", StringComparison.Ordinal) + 4)..project.IndexOf("-->", StringComparison.Ordinal)];
         Assert.DoesNotContain("--", comment, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void WithShards_EveryJourneyIsInExactlyOneClass_ThatHasASiteOfItsOwn_AndTheFilterFindsIt()
+    {
+        var functions = Enumerable.Range(0, 12).Select(i => Function("page-" + i, "Anyone", ["Click Page"], ["/p" + i])).ToArray();
+        var text = BrowserGenerator.Files("My Site", new BrowserSettings { WebProject = "src/Web/Web.csproj", Shards = 3 }, new FeatureRegistryFile { Functions = functions }, "../../tools/CodeQuality", "src/Web/Web.csproj")["Journeys.cs"];
+
+        Assert.Contains("public sealed class Journeys(Site site) : IClassFixture<Site>", text, StringComparison.Ordinal);
+        Assert.Contains("public sealed class SiteB : Site", text, StringComparison.Ordinal);
+        Assert.Contains("protected override string Shard => \"c\";", text, StringComparison.Ordinal);
+        Assert.Contains("public sealed class JourneysC(SiteC site) : IClassFixture<SiteC>", text, StringComparison.Ordinal);
+        foreach (var function in functions)
+        {
+            var method = BrowserGenerator.MethodName(function.Id);
+            Assert.Equal(1, text.Split($"public async Task {method}()", StringSplitOptions.None).Length - 1);
+            Assert.Contains($"FullyQualifiedName~{BrowserGenerator.ClassName(function.Id, 3)}.{method}", BrowserCommand.Filter([function], 3), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void WithOneShard_TheClassAndTheFilterAreTheOldOnes()
+    {
+        Assert.Equal("Journeys", BrowserGenerator.ClassName("anything", 1));
+        Assert.Equal("FullyQualifiedName~Journeys.read_legal", BrowserCommand.Filter([Function("read-legal", "Anyone", [], ["/terms"])]));
+    }
 }

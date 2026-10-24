@@ -191,7 +191,7 @@ internal static class QuickCommand
         }
 
         Console.WriteLine($"Driving {plan.Functions.Count} journey(s) in a browser: {string.Join(", ", plan.Functions.Select(f => f.Id))}...");
-        var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q --filter \"{BrowserCommand.Filter(plan.Functions)}\"", root, 1800);
+        var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q --filter \"{BrowserCommand.Filter(plan.Functions, config.Browser?.Shards ?? 1)}\"", root, 1800);
         var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
         Console.WriteLine("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
         return code == 0 ? 0 : summary is null ? 2 : 1;

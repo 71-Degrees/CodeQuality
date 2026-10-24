@@ -64,7 +64,7 @@ internal static class BrowserCommand
         Path.Combine(root, config.Browser?.TestProject ?? Path.Combine("tests", BrowserGenerator.Identifier(config.SiteName ?? Path.GetFileName(root)) + ".Browser.Tests"));
 
     /// <summary>The xunit filter that runs just these functions' generated journeys.</summary>
-    internal static string Filter(IEnumerable<FeatureFunction> functions) => string.Join('|', functions.Select(f => "FullyQualifiedName~Journeys." + BrowserGenerator.MethodName(f.Id)));
+    internal static string Filter(IEnumerable<FeatureFunction> functions, int shards = 1) => string.Join('|', functions.Select(f => $"FullyQualifiedName~{BrowserGenerator.ClassName(f.Id, shards)}.{BrowserGenerator.MethodName(f.Id)}"));
 
     /// <summary>The web project, when quality.json does not name it: the first project under the source folders that uses the web SDK, as a path relative to the root.</summary>
     internal static string? FindWebProject(string root, ToolConfig config) =>

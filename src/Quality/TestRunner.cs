@@ -41,7 +41,8 @@ internal static class TestRunner
     }
 
     /// <summary>
-    /// Runs each project, one after another, quick ones first. Stops at the first project that fails (the push is lost anyway, and the rest only costs minutes); <c>--keep-going</c> runs them all.
+    /// Runs the test projects, quick ones first. Stops at the first project that fails (the push is lost anyway, and the rest only costs minutes); <c>--keep-going</c> runs them all.
+    /// With <c>prebuildTests</c> the solution is built once first and every project runs with --no-build; with <c>parallelBrowserProjects</c> the browser projects run side by side.
     /// Returns the exit code: 0 when every test passed, 1 when any failed, 2 when a project could not be run at all.
     /// </summary>
     internal static async Task<int> RunAsync(RunContext context)
@@ -54,14 +55,40 @@ internal static class TestRunner
             return 2;
         }
 
+        var prebuilt = config.PrebuildTests && !options.Flag("--no-prebuild");
+        if (prebuilt && await PrebuildAsync(context) != 0)
+        {
+            SkipRest(context, projects, "the build failed");
+            return 2;
+        }
+
+        var units = projects.Where(p => !TestResults.IsBrowserProject(Path.GetFileNameWithoutExtension(p))).ToList();
+        var browsers = projects.Where(p => TestResults.IsBrowserProject(Path.GetFileNameWithoutExtension(p))).ToList();
+        var worst = await RunInOrderAsync(context, units, prebuilt);
+        if (worst > 0 && (!options.Flag("--keep-going") || options.Flag("--stop-browser-after-unit-failure")))
+        {
+            // The second flag is opt-in: a resumed run reruns just the failed tests, so browser projects skipped here would not run again.
+            SkipRest(context, browsers, "a unit test project failed");
+            return worst;
+        }
+
+        var browserResult = browsers.Count > 1 && config.ParallelBrowserProjects
+            ? await RunBrowsersTogetherAsync(context, browsers, prebuilt)
+            : await RunInOrderAsync(context, browsers, prebuilt);
+        return Math.Max(worst, browserResult);
+    }
+
+    // One after another; stops at the first failure unless --keep-going (the rest is then marked not run).
+    private static async Task<int> RunInOrderAsync(RunContext context, List<string> projects, bool noBuild)
+    {
         var worst = 0;
         foreach (var project in projects)
         {
             var name = Path.GetFileNameWithoutExtension(project);
-            worst = Math.Max(worst, await context.Live.RunStageAsync(LiveSteps.Tests(name), $"Tests: {name}", () => RunProjectAsync(context, project)));
-            if (worst > 0 && !options.Flag("--keep-going"))
+            worst = Math.Max(worst, await context.Live.RunStageAsync(LiveSteps.Tests(name), $"Tests: {name}", () => RunProjectAsync(context, project, noBuild)));
+            if (worst > 0 && !context.Options.Flag("--keep-going"))
             {
-                SkipRest(context, projects.Skip(projects.IndexOf(project) + 1).ToList());
+                SkipRest(context, projects.Skip(projects.IndexOf(project) + 1).ToList(), "an earlier project failed");
                 break;
             }
         }
@@ -69,8 +96,46 @@ internal static class TestRunner
         return worst;
     }
 
+    // The browser projects side by side. The shared pre-build runs first, once, so the sites they start find the web project already built.
+    private static async Task<int> RunBrowsersTogetherAsync(RunContext context, List<string> browsers, bool noBuild)
+    {
+        foreach (var arguments in context.Config.BrowserPrebuild ?? [])
+        {
+            context.Say($"Before the browser tests: dotnet {arguments}");
+            var (code, output) = await Shell.RunAsync("dotnet", arguments, context.Root, 1800);
+            if (code != 0)
+            {
+                context.Say("  failed: " + output.Split('\n').LastOrDefault(l => l.Contains("error", StringComparison.OrdinalIgnoreCase))?.Trim());
+                SkipRest(context, browsers, "the browser pre-build failed");
+                return 2;
+            }
+        }
+
+        var results = await Task.WhenAll(browsers.Select(project =>
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            return context.Live.RunStageAsync(LiveSteps.Tests(name), $"Tests: {name}", () => RunProjectAsync(context, project, noBuild));
+        }));
+        return results.Max();
+    }
+
+    // The whole solution once; a compile error then stops the run here, in about a minute, instead of costing the tests' time to find.
+    private static async Task<int> PrebuildAsync(RunContext context)
+    {
+        var solution = context.Config.SolutionPath(context.Root);
+        context.Say("Building the solution once for all the test projects...");
+        var code = await context.Live.RunStageAsync("build-tests", "Build for the tests", async () =>
+            (await Shell.RunAsync("dotnet", $"build \"{solution}\" --nologo -v q", context.Root, 1800)).Code == 0 ? 0 : 2);
+        if (code != 0)
+        {
+            context.Say("  the build failed; run `dotnet build` to see the first errors.");
+        }
+
+        return code;
+    }
+
     // One project with the coverage collector: 0 passed, 1 some test failed, 2 it did not run at all (no results file).
-    private static async Task<int> RunProjectAsync(RunContext context, string project)
+    private static async Task<int> RunProjectAsync(RunContext context, string project, bool noBuild)
     {
         var (root, options, say, _, _) = context;
         var name = Path.GetFileNameWithoutExtension(project);
@@ -80,7 +145,7 @@ internal static class TestRunner
         say($"Running {name}...");
         var (code, output) = await Shell.RunAsync(
             "dotnet",
-            $"test \"{project}\" --nologo -v q --collect:\"XPlat Code Coverage\" --logger \"trx;LogFileName=results.trx\" --results-directory \"{results}\"{BrowserFilter(options, name)}",
+            $"test \"{project}\" --nologo -v q{(noBuild ? " --no-build" : string.Empty)} --collect:\"XPlat Code Coverage\" --logger \"trx;LogFileName=results.trx\" --results-directory \"{results}\"{BrowserFilter(options, name)}",
             root,
             1800);
         var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
@@ -90,7 +155,7 @@ internal static class TestRunner
     }
 
     // The projects not run keep no results from an earlier run: the report would mix this push's failure with another push's numbers.
-    private static void SkipRest(RunContext context, List<string> skipped)
+    private static void SkipRest(RunContext context, List<string> skipped, string reason)
     {
         if (skipped.Count == 0)
         {
@@ -103,8 +168,8 @@ internal static class TestRunner
         }
 
         var names = skipped.Select(p => Path.GetFileNameWithoutExtension(p)).ToList();
-        context.Live.Skip(names.Select(n => (LiveSteps.Tests(n), $"Tests: {n}")), "not run: an earlier project failed");
-        context.Say($"Stopped at the first failing project; not run: {string.Join(", ", names)} (--keep-going runs them all).");
+        context.Live.Skip(names.Select(n => (LiveSteps.Tests(n), $"Tests: {n}")), $"not run: {reason}");
+        context.Say($"Not run ({reason}): {string.Join(", ", names)} (--keep-going runs them all).");
     }
 
     // Each run replaces the project's own results (regenerated output, like bin and obj): the Cobertura file is written into a new folder per run, so the old ones would pile up and be read as one.

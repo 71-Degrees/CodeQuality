@@ -63,6 +63,15 @@ public sealed class ToolConfig
     /// <summary>The test projects to run for the test counts and coverage (project files, or folders holding one). Default: every project one folder down under each test folder, except browser tests, which start the site and a browser and run only with --include-browser.</summary>
     public string[]? TestProjects { get; init; }
 
+    /// <summary>Build the solution once before the tests and run every test project with --no-build: a compile error then fails the run in about a minute, and the projects stop each paying for their own build.</summary>
+    public bool PrebuildTests { get; init; }
+
+    /// <summary>Run the browser test projects side by side instead of one after another (they each start their own site processes). Needs <see cref="BrowserPrebuild"/> when they share a web project, so two <c>dotnet run</c>s do not build it at once.</summary>
+    public bool ParallelBrowserProjects { get; init; }
+
+    /// <summary>Arguments of <c>dotnet</c> commands run once, in order, before the browser projects start (for example building the web project in the configuration the sites run).</summary>
+    public string[]? BrowserPrebuild { get; init; }
+
     /// <summary>The browser tests' run log (Quality.Browser's BrowserRunLog), relative to the root: when set, the report shows each scenario's last time against the one before it and its best.</summary>
     public string? BrowserRunLog { get; init; }
 
