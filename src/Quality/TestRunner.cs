@@ -64,6 +64,13 @@ internal static class TestRunner
 
         var units = projects.Where(p => !TestResults.IsBrowserProject(Path.GetFileNameWithoutExtension(p))).ToList();
         var browsers = projects.Where(p => TestResults.IsBrowserProject(Path.GetFileNameWithoutExtension(p))).ToList();
+        if (config.ParallelUnitsWithBrowsers && browsers.Count > 0)
+        {
+            // The browser projects do not wait for the units, so a unit failure cannot skip them (and --stop-browser-after-unit-failure has nothing to stop).
+            var both = await Task.WhenAll(RunInOrderAsync(context, units, prebuilt), RunBrowserProjectsAsync(context, browsers, prebuilt));
+            return both.Max();
+        }
+
         var worst = await RunInOrderAsync(context, units, prebuilt);
         if (worst > 0 && (!options.Flag("--keep-going") || options.Flag("--stop-browser-after-unit-failure")))
         {
@@ -72,11 +79,11 @@ internal static class TestRunner
             return worst;
         }
 
-        var browserResult = browsers.Count > 1 && config.ParallelBrowserProjects
-            ? await RunBrowsersTogetherAsync(context, browsers, prebuilt)
-            : await RunInOrderAsync(context, browsers, prebuilt);
-        return Math.Max(worst, browserResult);
+        return Math.Max(worst, await RunBrowserProjectsAsync(context, browsers, prebuilt));
     }
+
+    private static Task<int> RunBrowserProjectsAsync(RunContext context, List<string> browsers, bool prebuilt) =>
+        browsers.Count > 1 && context.Config.ParallelBrowserProjects ? RunBrowsersTogetherAsync(context, browsers, prebuilt) : RunInOrderAsync(context, browsers, prebuilt);
 
     // One after another; stops at the first failure unless --keep-going (the rest is then marked not run).
     private static async Task<int> RunInOrderAsync(RunContext context, List<string> projects, bool noBuild)

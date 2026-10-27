@@ -69,6 +69,9 @@ public sealed class ToolConfig
     /// <summary>Run the browser test projects side by side instead of one after another (they each start their own site processes). Needs <see cref="BrowserPrebuild"/> when they share a web project, so two <c>dotnet run</c>s do not build it at once.</summary>
     public bool ParallelBrowserProjects { get; init; }
 
+    /// <summary>Start the browser projects at the same time as the unit projects instead of after them (a trial, 2026-10-27: the browser tests take the longest, so the units hide behind them; the load may flake a browser test).</summary>
+    public bool ParallelUnitsWithBrowsers { get; init; }
+
     /// <summary>Arguments of <c>dotnet</c> commands run once, in order, before the browser projects start (for example building the web project in the configuration the sites run).</summary>
     public string[]? BrowserPrebuild { get; init; }
 
