@@ -157,6 +157,15 @@ internal static class TestRunner
             1800);
         var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
         say("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
+        if (summary is null && code != 0)
+        {
+            // A project that died without a result line used to be one word on the screen; its own last lines say why (a missing build, a port in use, a crashed test host).
+            foreach (var line in output.Split('\n').Select(l => l.TrimEnd()).Where(l => l.Length > 0).TakeLast(8))
+            {
+                say("    | " + line);
+            }
+        }
+
         context.Live.Counts(LiveSteps.Tests(name), TestSummaryLine.Parse(summary));
         return code == 0 ? 0 : File.Exists(Path.Combine(results, "results.trx")) ? 1 : 2;
     }
