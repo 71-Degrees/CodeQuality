@@ -165,10 +165,25 @@ internal static class QuickCommand
         Console.WriteLine($"Running {name}: {classes.Count} test class(es)...");
         var noBuild = options.Flag("--no-build") ? " --no-build" : string.Empty;
         var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q{noBuild} --filter \"{TestSelection.Filter(classes)}\"", root, 1800);
-        var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
+        var summary = TestRunOutput.SummaryLine(output);
         Console.WriteLine("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
+        SayWhy(code, summary, output);
         live.Counts(LiveSteps.QuickTests(name), TestSummaryLine.Parse(summary));
         return code == 0 ? 0 : summary is null ? 2 : 1;
+    }
+
+    /// <summary>Under a failed run's summary line: the failing tests by name, or, when the run never reported (a missing build, a locked file), its last lines. The push gate shows these lines, so a refused push says why.</summary>
+    private static void SayWhy(int code, string? summary, string output)
+    {
+        if (code == 0)
+        {
+            return;
+        }
+
+        foreach (var line in summary is null ? TestRunOutput.LastLines(output) : TestRunOutput.FailedTests(output))
+        {
+            Console.WriteLine("    | " + line);
+        }
     }
 
     /// <summary>The generated journeys are driven function by function (<see cref="BrowserOfChanged"/>); selecting their test class by name as well would run every journey, which is minutes of browser for a small change.</summary>
@@ -192,8 +207,9 @@ internal static class QuickCommand
 
         Console.WriteLine($"Driving {plan.Functions.Count} journey(s) in a browser: {string.Join(", ", plan.Functions.Select(f => f.Id))}...");
         var (code, output) = await Shell.RunAsync("dotnet", $"test \"{project}\" --nologo -v q --filter \"{BrowserCommand.Filter(plan.Functions, config.Browser?.Shards ?? 1)}\"", root, 1800);
-        var summary = output.Split('\n').LastOrDefault(l => l.Contains("Passed!", StringComparison.Ordinal) || l.Contains("Failed!", StringComparison.Ordinal))?.Trim();
+        var summary = TestRunOutput.SummaryLine(output);
         Console.WriteLine("  " + (summary ?? (code == 0 ? "passed" : "did not complete")));
+        SayWhy(code, summary, output);
         return code == 0 ? 0 : summary is null ? 2 : 1;
     }
 
