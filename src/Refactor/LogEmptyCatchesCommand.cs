@@ -17,17 +17,16 @@ internal static class LogEmptyCatchesCommand
     {
         var options = new CommandOptions(args);
         var root = Repo.FindRoot();
-        if (options.Flag("--apply") && !options.Flag("--allow-dirty") && !await GitTree.IsCleanAsync(root))
+        if (!await CommandSetup.TreeIsReadyAsync(options, root))
         {
-            Console.Error.WriteLine("The git working tree has uncommitted changes. Commit them first (or pass --allow-dirty).");
             return 2;
         }
 
         var config = ToolConfig.Load(root);
-        var folders = options.Has("--path") ? new[] { Path.GetFullPath(options.Text("--path"), root) } : config.SourceFolders.Select(folder => Path.Combine(root, folder)).Where(Directory.Exists).ToArray();
+        var folders = CommandSetup.Folders(options, root, config.SourceFolders);
         var totalLogged = 0;
         var left = new List<string>();
-        foreach (var file in folders.SelectMany(folder => Directory.EnumerateFiles(folder, "*.cs", SearchOption.AllDirectories)).Where(file => IsOurs(file, root, config)))
+        foreach (var file in CSharpFiles.Under(root, config, folders))
         {
             var result = EmptyCatchLogger.Apply(File.ReadAllText(file));
             totalLogged += result.Logged.Count;
@@ -45,14 +44,5 @@ internal static class LogEmptyCatchesCommand
         Console.WriteLine($"{totalLogged} empty catch(es) {(options.Flag("--apply") ? "now log" : "would log")}; {left.Count} left for a person (no logger in reach):");
         left.ForEach(entry => Console.WriteLine($"  {entry}"));
         return 0;
-    }
-
-    /// <summary>Not build output, and not in a folder the repository's quality.json says to leave out (another repository checked out inside it, for example).</summary>
-    private static bool IsOurs(string path, string root, ToolConfig config)
-    {
-        var relative = "/" + Path.GetRelativePath(root, path).Replace('\\', '/');
-        return !relative.Contains("/obj/", StringComparison.Ordinal)
-            && !relative.Contains("/bin/", StringComparison.Ordinal)
-            && !config.Skipped.Any(skipped => relative.Contains(skipped, StringComparison.Ordinal));
     }
 }

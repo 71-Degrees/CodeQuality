@@ -150,6 +150,7 @@ internal static class Smells
         }
 
         CheckTodoMarkers(root, tree, file, findings);
+        NonAsciiLiteralRule.Check(file, root, tree, findings);
         if (kind == FileKind.Code)
         {
             StandardRules.CheckCode(file, root, tree, findings);

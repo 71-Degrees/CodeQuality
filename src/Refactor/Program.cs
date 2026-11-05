@@ -16,6 +16,7 @@
 //       moves lines FROM..TO into a static extension method in another file and leaves one call behind (dry run unless --apply); the block is carried over unchanged, only indented.
 //
 //   <refactor> log-empty-catches [--apply]   # every empty catch in a type with a logger gets a debug line saying what it ignored (the owner's no-empty-catch rule)
+//   <refactor> escape-non-ascii [--path DIR] [--apply]   # non-ASCII characters in string and char literals become \u escapes (the owner's rule, 2026-11-05)
 //
 // After --apply: build, run the tests, review the diff, commit. Warnings no fixer can fix safely are listed as "left for a person".
 
@@ -42,8 +43,10 @@ internal static class Program
                 return await LogEmptyCatchesCommand.RunAsync(args);
             case "lambdas-to-methods":
                 return await LambdasToMethodsCommand.RunAsync(args);
+            case "escape-non-ascii":
+                return await EscapeNonAsciiCommand.RunAsync(args);
             default:
-                Console.Error.WriteLine($"Usage:{Environment.NewLine}  fix-analyzers [--apply] [--rules CA1816,CA1305] [--target PROJECT]   (dry run unless --apply){Environment.NewLine}  {ExtractBlockCommand.Usage}{Environment.NewLine}  {LambdasToMethodsCommand.Usage}{Environment.NewLine}  {LogEmptyCatchesCommand.Usage}");
+                Console.Error.WriteLine($"Usage:{Environment.NewLine}  fix-analyzers [--apply] [--rules CA1816,CA1305] [--target PROJECT]   (dry run unless --apply){Environment.NewLine}  {ExtractBlockCommand.Usage}{Environment.NewLine}  {LambdasToMethodsCommand.Usage}{Environment.NewLine}  {LogEmptyCatchesCommand.Usage}{Environment.NewLine}  {EscapeNonAsciiCommand.Usage}");
                 return 2;
         }
     }

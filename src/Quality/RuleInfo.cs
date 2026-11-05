@@ -27,6 +27,7 @@ internal static class Rules
         ["BroadCatch"] = new("Catches every exception without logging", "Real bugs pass silently.", "Log the exception (and keep the catch if best-effort is intended), or catch the specific exceptions expected.", Automation.Assisted),
         ["AsyncVoid"] = new("async void method", "An exception in it cannot be caught and can take the process down.", "Return Task instead of void.", Automation.Mechanical),
         ["BlockingAsync"] = new("Blocks a thread waiting on a task", "On a request path this can stall the server and deadlock.", "Make the caller async and await.", Automation.Manual),
+        ["NonAsciiLiteral"] = new("Non-ASCII character typed into a string", "A typographic character (an ellipsis, a dash, a curly quote) written straight into a literal breaks when a tool reads or writes the file in the wrong encoding, and the damage is silent.", "Write it as a \\u escape (\\u2026 for an ellipsis, \\u2013 for an en dash). The Refactor tool's escape-non-ascii does this for every literal; a literal and its escape compile to the same text.", Automation.Mechanical),
         ["TodoMarker"] = new("TODO / FIXME / HACK left in code", "A note to self that was never resolved.", "Do it, ticket it, or delete the comment.", Automation.Manual),
         ["DuplicateCode"] = new("The same code in two places", "Copy and paste means a bug fix or a rule change has to be made twice, and one copy gets forgotten. One place should know each rule.", "Extract the shared part into one method or class both places call; the tests prove nothing changed.", Automation.Assisted),
         ["MutableStatic"] = new("Static state that can change", "Hidden shared state makes behaviour depend on what ran before and breaks tests that run side by side.", "Pass the state in through the constructor, or make it a readonly immutable value.", Automation.Manual),
@@ -46,7 +47,7 @@ internal static class Rules
     };
 
     /// <summary>The smell rules added after the first recording on 2026-10-09. The timeline's headline numbers leave them out so that adding a check does not look like quality getting worse; they have their own row.</summary>
-    public static readonly IReadOnlyList<string> Newer = new[] { "DuplicateCode", "MutableStatic", "DirectClock", "DirectHttpClient", "DroppedTask", "TestWithoutAssert", "SkippedTest" };
+    public static readonly IReadOnlyList<string> Newer = new[] { "DuplicateCode", "MutableStatic", "DirectClock", "DirectHttpClient", "DroppedTask", "TestWithoutAssert", "SkippedTest", "NonAsciiLiteral" };
 
     public static RuleInfo For(string rule) =>
         Known.TryGetValue(rule, out var info) ? info : new RuleInfo(rule, "A .NET analyzer rule (see Microsoft's code-quality rule documentation for this id).", "See the analyzer's own message.", rule.StartsWith("build/", StringComparison.Ordinal) ? Automation.Mechanical : Automation.Manual);

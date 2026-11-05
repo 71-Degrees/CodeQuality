@@ -197,4 +197,22 @@ public sealed class RuleTests : IDisposable
 
         Assert.Equal(2, findings.Single(f => f.Rule == "DirectClock").Value);   // the two reads in methods, not the two defaults
     }
+
+    // The samples are written with \u escapes so this test file stays ASCII; the scanned source holds the real characters.
+    [Fact]
+    public void A_non_ascii_character_in_a_string_char_or_interpolated_text_is_flagged_once_per_literal()
+    {
+        var findings = Scan("src/Text.cs", "class Text { string S = \"a…b\"; char C = 'é'; string I(int x) => $\"a – {x}\"; }");
+
+        Assert.Equal(3, findings.Count(f => f.Rule == "NonAsciiLiteral"));
+        Assert.Contains(findings, f => f.Rule == "NonAsciiLiteral" && f.Member == "Text literal@3");
+    }
+
+    [Fact]
+    public void Verbatim_raw_comment_and_plain_literals_are_not_flagged()
+    {
+        var findings = Scan("src/Quiet.cs", "class Quiet { string V = @\"…\"; string R = \"\"\"…\"\"\"; string P = \"plain\"; } // … a comment\n");
+
+        Assert.DoesNotContain(findings, f => f.Rule == "NonAsciiLiteral");
+    }
 }

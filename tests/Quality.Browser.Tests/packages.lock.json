@@ -167,7 +167,10 @@
         }
       },
       "common": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Microsoft.CodeAnalysis.CSharp": "[5.9.0, )"
+        }
       },
       "quality": {
         "type": "Project",
