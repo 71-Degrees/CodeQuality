@@ -101,7 +101,7 @@ public class ReleasePanelTests
     {
         var status = new TargetStatus("Production", "Deploy to production", "aaaa", "Staging's build", 3, 4, ["src/Billing.cs"], true, null);
 
-        var html = Dashboard.Render("Site", "abc", new History(), [], [status], "http://127.0.0.1:5098");
+        var html = Dashboard.Render("Site", "abc", new History(), [], new Dashboard.Extras([status], "http://127.0.0.1:5098"));
 
         Assert.Contains("\"consoleUrl\":\"http://127.0.0.1:5098\"", html, StringComparison.Ordinal);
         Assert.Contains("\"button\":\"Deploy to production\"", html, StringComparison.Ordinal);

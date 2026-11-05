@@ -20,7 +20,7 @@ internal sealed record DashboardPoint(string Commit, string At, int Smells, int 
 internal sealed record GateRun(string At, double SlowestSeconds, bool Passed);
 
 /// <summary>
-/// The dashboard: the quality timeline (<c>quality/history.json</c>, one value set per commit) and the push timings (<c>reports/check-timings.jsonl</c>) drawn as trend lines, with where each number started, where it
+/// The dashboard: the quality timeline (<c>reports/quality-history.json</c>, see <see cref="History"/>; one value set per commit) and the push timings (<c>reports/check-timings.jsonl</c>) drawn as trend lines, with where each number started, where it
 /// is now and how it moved since the previous commit. One self-contained page at a fixed name (<c>reports/quality-dashboard.html</c>), rewritten by every run so it can stay open in a tab or be bookmarked.
 /// </summary>
 internal static class Dashboard
@@ -136,7 +136,10 @@ internal static class Dashboard
         }
     }
 
-    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns, IReadOnlyList<TargetStatus>? release = null, string? consoleUrl = null, IReadOnlyList<FeaturePoint>? features = null, IReadOnlyDictionary<string, string>? subjects = null)
+    /// <summary>What the dashboard shows beside the timeline and the push timings, each left out when there is none: the release panel, the console link, the feature trend and the commit subjects.</summary>
+    public sealed record Extras(IReadOnlyList<TargetStatus>? Release = null, string? ConsoleUrl = null, IReadOnlyList<FeaturePoint>? Features = null, IReadOnlyDictionary<string, string>? Subjects = null);
+
+    public static string Render(string title, string commit, History history, IReadOnlyList<GateRun> gateRuns, Extras? extras = null)
     {
         var first = history.Snapshots.FirstOrDefault(s => s.Smells is not null)?.Smells;
         var last = history.Snapshots.LastOrDefault(s => s.Smells is not null)?.Smells;
@@ -144,12 +147,12 @@ internal static class Dashboard
         {
             generated = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture),
             commit,
-            points = Points(history, subjects),
+            points = Points(history, extras?.Subjects),
             gate = gateRuns.TakeLast(60).ToList(),
             newerRules = Rules.Newer,
-            release,
-            consoleUrl,
-            features,
+            release = extras?.Release,
+            consoleUrl = extras?.ConsoleUrl,
+            features = extras?.Features,
             firstRules = first?.ByRule,
             lastRules = last?.ByRule,
         };
@@ -167,7 +170,7 @@ internal static class Dashboard
         var release = await ReleaseStatusAsync(root, config);
         var features = await FeaturePointsAsync(root, config);
         var subjects = await CommitSubjectsAsync(root);
-        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs, release, config.Release?.ConsoleUrl, features, subjects));
+        await File.WriteAllTextAsync(path, Render(config.Title(root), commit, history, runs, new Extras(release, config.Release?.ConsoleUrl, features, subjects)));
         return path;
     }
 

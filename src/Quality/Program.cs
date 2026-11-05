@@ -207,7 +207,7 @@ internal static class Program
         return 0;
     }
 
-    /// <summary>Adds this run to the quality timeline (quality/history.json) when its numbers changed, and returns the timeline.</summary>
+    /// <summary>Adds this run to the quality timeline (reports/quality-history.json, see History) when its numbers changed, and returns the timeline.</summary>
     private static async Task<History> RecordHistoryAsync(string root, Collected collected)
     {
         var history = History.Load(root);
@@ -226,13 +226,13 @@ internal static class Program
         if (!options.Flag("--backfill"))
         {
             var current = History.Load(root);
-            Console.WriteLine($"{current.Snapshots.Count} snapshot(s) in quality/history.json. {current.Summary()}");
+            Console.WriteLine($"{current.Snapshots.Count} snapshot(s) in the quality timeline ({History.PathFor(root)}). {current.Summary()}");
             return 0;
         }
 
         if (History.Load(root).Snapshots.Count > 0 && !options.Flag("--force"))
         {
-            Console.Error.WriteLine("quality/history.json already has snapshots; --force rebuilds it from git (earlier hand-added notes are lost).");
+            Console.Error.WriteLine("The quality timeline already has snapshots; --force rebuilds it from git (earlier hand-added notes are lost).");
             return 2;
         }
 

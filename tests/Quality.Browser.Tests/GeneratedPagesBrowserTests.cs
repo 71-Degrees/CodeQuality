@@ -91,7 +91,7 @@ public sealed class GeneratedPagesBrowserTests
     {
         var release = new List<TargetStatus> { new("Production", "Push to production", "aaaa", "Staging's build", 3, 4, ["src/Billing.cs"], true, null) };
 
-        var (text, problems) = await OpenAsync(Dashboard.Render("Site", "abc1234", History(), [new GateRun("2026-10-12T11:45:36-04:00", 30, true)], release, "http://127.0.0.1:5098", [new FeaturePoint("aaa", "2026-10-01 09:00", 60, 30, 33), new FeaturePoint("bbb", "2026-10-02 09:00", 63, 41, 44)]));
+        var (text, problems) = await OpenAsync(Dashboard.Render("Site", "abc1234", History(), [new GateRun("2026-10-12T11:45:36-04:00", 30, true)], new Dashboard.Extras(release, "http://127.0.0.1:5098", [new FeaturePoint("aaa", "2026-10-01 09:00", 60, 30, 33), new FeaturePoint("bbb", "2026-10-02 09:00", 63, 41, 44)])));
 
         Assert.Empty(problems);
         Assert.Contains("Code smells", text, StringComparison.Ordinal);

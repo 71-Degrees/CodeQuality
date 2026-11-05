@@ -104,4 +104,29 @@ public class HistoryTests
 
         Assert.Null(history.Summary());
     }
+
+    [Fact]
+    public void ARunStartsFromTheCommittedTimeline_AndSavesOnlyToTheReportsFolder_SoTheCheckoutStaysClean()
+    {
+        var root = Directory.CreateTempSubdirectory("quality-history-").FullName;
+        try
+        {
+            var start = new History();
+            start.Record(Ran("smells", Smell("LongMethod", 120)), "aaa1111", Noon);
+            JsonState.Save(History.StartPath(root), start);
+            var committed = File.ReadAllText(History.StartPath(root));
+
+            var loaded = History.Load(root);
+            loaded.Record(Ran("smells", Smell("LongMethod", 90)), "bbb2222", Noon.AddDays(1));
+            loaded.Save(root);
+
+            Assert.Equal(committed, File.ReadAllText(History.StartPath(root)));
+            Assert.Equal(2, History.Load(root).Snapshots.Count);
+            Assert.Equal(Path.Combine(root, "reports", "quality-history.json"), History.PathFor(root));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

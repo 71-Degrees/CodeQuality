@@ -61,16 +61,22 @@ internal sealed record TestCounts(int Total, int Failed, double? Coverage)
 internal sealed record Snapshot(string At, string Commit, string Note, CheckCounts? Smells, CheckCounts? Analyzers, TestCounts? Tests = null);
 
 /// <summary>
-/// The quality timeline, <c>quality/history.json</c> (committed): a snapshot each time a run's numbers differ from the last one, so the report can show where quality started, where it was last time and where it is now.
-/// <c>history --backfill</c> rebuilds the early part from the git history of the baseline file.
+/// The quality timeline: a snapshot each time a run's numbers differ from the last one, so the report can show where quality started, where it was last time and where it is now.
+/// It is kept in <c>reports/quality-history.json</c> (not committed, one per machine), started from the committed <c>quality/history.json</c> the first time. Runs never write the committed file: it was rewritten
+/// by every run, the background run after each push included (through the output root), and the changed file left the checkout dirty, which stopped every pull and rebase, the nightly and the R&amp;D ledger until
+/// someone put it back (the owner, 2026-11-05). <c>history --backfill</c> rebuilds the early part from the git history of the baseline file.
 /// </summary>
 internal sealed class History
 {
     public List<Snapshot> Snapshots { get; set; } = new();
 
-    private static string PathFor(string root) => Path.Combine(Repo.OutputRoot(root), "quality", "history.json");
+    /// <summary>Where the timeline is kept and written: under the output root's reports, which git ignores.</summary>
+    internal static string PathFor(string root) => Path.Combine(Repo.OutputRoot(root), "reports", "quality-history.json");
 
-    public static History Load(string root) => JsonState.Load<History>(PathFor(root));
+    /// <summary>The committed timeline every machine starts from; read, never written.</summary>
+    internal static string StartPath(string root) => Path.Combine(root, "quality", "history.json");
+
+    public static History Load(string root) => JsonState.Load<History>(File.Exists(PathFor(root)) ? PathFor(root) : StartPath(root));
 
     public void Save(string root) => JsonState.Save(PathFor(root), this);
 

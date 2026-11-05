@@ -52,7 +52,7 @@ public class FeatureTrendTests
     [Fact]
     public void TheDashboardCarriesTheListsProgressAndDrawsNothingOnItsOwnWhenThereIsNone()
     {
-        var with = Dashboard.Render("Site", "abc", new History(), [], features: [new FeaturePoint("abc1234", "2026-10-09 09:00", 63, 41, 44)]);
+        var with = Dashboard.Render("Site", "abc", new History(), [], new Dashboard.Extras(Features: [new FeaturePoint("abc1234", "2026-10-09 09:00", 63, 41, 44)]));
         var without = Dashboard.Render("Site", "abc", new History(), []);
 
         Assert.Contains("\"features\":[{\"commit\":\"abc1234\",\"at\":\"2026-10-09 09:00\",\"functions\":63,\"walked\":41,\"withBrowserTest\":44}]", with, StringComparison.Ordinal);
