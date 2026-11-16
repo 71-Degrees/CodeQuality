@@ -34,6 +34,9 @@ public abstract class BrowserSiteFixture : IAsyncLifetime
     /// <summary>The file that records each scenario's timing (appended to, never cleaned up).</summary>
     protected abstract string RunLogPath { get; }
 
+    /// <summary>Extra Chromium switches for this site's tests (for example <see cref="Chromium.FakeCameraArguments"/>). None by default.</summary>
+    protected virtual IReadOnlyList<string> BrowserArguments => [];
+
     public SiteHost Site { get; private set; } = null!;
 
     public BrowserRunLog Log { get; private set; } = null!;
@@ -45,7 +48,7 @@ public abstract class BrowserSiteFixture : IAsyncLifetime
         Log = new BrowserRunLog(RunLogPath);
         Site = await SiteHost.StartAsync(Options).ConfigureAwait(false);
         Log.Append("site started", Site.StartedIn, 0);
-        (_playwright, _browser) = await Chromium.LaunchAsync().ConfigureAwait(false);
+        (_playwright, _browser) = await Chromium.LaunchAsync(BrowserArguments).ConfigureAwait(false);
         // A journey runs against a site that has just started on a machine that may be busy; the 5 seconds Playwright waits for an expected thing is too tight for the first pages, and a longer wait costs nothing when things are fine.
         Assertions.SetDefaultExpectTimeout(15_000);
     }
@@ -54,9 +57,29 @@ public abstract class BrowserSiteFixture : IAsyncLifetime
     /// A fresh page in its own browser context (cookies and storage are not shared with any other test unless <paramref name="storageStatePath"/> says so: a file saved by <see cref="SaveStorageStateAsync"/>, which lets many tests
     /// start already signed in after one real sign-in), with a probe listening.
     /// </summary>
-    public async Task<BrowserPage> NewPageAsync(int width = 390, int height = 844, string? storageStatePath = null)
+    public Task<BrowserPage> NewPageAsync(int width = 390, int height = 844, string? storageStatePath = null) =>
+        NewPageAsync(new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = width, Height = height }, StorageStatePath = storageStatePath });
+
+    /// <summary>
+    /// A fresh page that behaves like a phone: touch input (so CSS <c>pointer: coarse</c> and touch-only code paths are taken), the mobile viewport, and the camera
+    /// permission granted. Pair it with <see cref="Chromium.FakeCameraArguments"/> to drive a page that opens the camera.
+    /// </summary>
+    public Task<BrowserPage> NewPhonePageAsync(string? storageStatePath = null) =>
+        NewPageAsync(new BrowserNewContextOptions
+        {
+            ViewportSize = new ViewportSize { Width = 390, Height = 844 },
+            HasTouch = true,
+            IsMobile = true,
+            Permissions = ["camera"],
+            StorageStatePath = storageStatePath,
+        });
+
+    /// <summary>A fresh page from the caller's own context options; the base address, the outside-request blocking and the probe are added here.</summary>
+    public async Task<BrowserPage> NewPageAsync(BrowserNewContextOptions options)
     {
-        var context = await _browser!.NewContextAsync(new BrowserNewContextOptions { ViewportSize = new ViewportSize { Width = width, Height = height }, BaseURL = BaseUrl, StorageStatePath = storageStatePath }).ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(options);
+        options.BaseURL = BaseUrl;
+        var context = await _browser!.NewContextAsync(options).ConfigureAwait(false);
         await context.RouteAsync("**/*", AnswerOrBlockAsync).ConfigureAwait(false);
         await context.AddInitScriptAsync(BlazorPages.WatchLiveConnectionScript).ConfigureAwait(false);
         var page = await context.NewPageAsync().ConfigureAwait(false);

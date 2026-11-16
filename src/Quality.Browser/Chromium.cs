@@ -17,17 +17,27 @@ public static class Chromium
     /// <summary>Set to <c>0</c> to skip every browser test (a machine without a browser, a quick run).</summary>
     public const string EnabledVariable = "QUALITY_BROWSER";
 
+    /// <summary>
+    /// Chromium's built-in stand-in camera (a moving test pattern) with the permission prompt answered yes: a page that opens the camera can be driven like a phone
+    /// with a real one, so a black or frozen viewfinder can be caught by a test instead of on the owner's phone.
+    /// </summary>
+    public static readonly IReadOnlyList<string> FakeCameraArguments = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"];
+
     private static readonly Lazy<string?> WhyNot = new(Check);
 
     /// <summary>Why browser tests cannot run here, or null when they can.</summary>
     public static string? WhyUnavailable() => WhyNot.Value;
 
-    /// <summary>Starts Playwright and a Chromium. The caller disposes both.</summary>
-    public static async Task<(IPlaywright Playwright, IBrowser Browser)> LaunchAsync()
+    /// <summary>
+    /// Starts Playwright and a Chromium. The caller disposes both. <paramref name="arguments"/> are extra Chromium switches a site's tests need, for example
+    /// <see cref="FakeCameraArguments"/> for a page that opens the camera.
+    /// </summary>
+    public static async Task<(IPlaywright Playwright, IBrowser Browser)> LaunchAsync(IEnumerable<string>? arguments = null)
     {
         var playwright = await Playwright.CreateAsync().ConfigureAwait(false);
         var headed = Environment.GetEnvironmentVariable(HeadedVariable) is { Length: > 0 } value && value != "0";
-        var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = !headed, SlowMo = headed ? 250 : 0 }).ConfigureAwait(false);
+        var options = new BrowserTypeLaunchOptions { Headless = !headed, SlowMo = headed ? 250 : 0, Args = arguments?.ToList() };
+        var browser = await playwright.Chromium.LaunchAsync(options).ConfigureAwait(false);
         return (playwright, browser);
     }
 
