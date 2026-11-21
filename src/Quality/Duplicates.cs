@@ -165,9 +165,18 @@ internal static class Duplicates
             $"{lineCount} lines from line {stream.Lines[run.Start]} are repeated elsewhere (for example {where}): extract the shared part so one place knows the rule.");
     }
 
-    /// <summary>Tokens that say nothing about behaviour: using directives, attributes, enum members, and auto-properties (a list of `public string? X { get; set; }` looks identical in every data class).</summary>
+    /// <summary>
+    /// Tokens that say nothing about behaviour: using directives, attributes, enum members, auto-properties (a list of `public string? X { get; set; }` looks identical
+    /// in every data class), and constants with a plain literal value (a table of `public const string X = "...";` is a list of words, and with names and literals
+    /// ignored every such table looks the same: two unrelated tables of sentences were once reported as one rule written twice).
+    /// </summary>
     private static bool Ignored(SyntaxToken token) =>
-        token.Parent?.AncestorsAndSelf().Any(n => n is UsingDirectiveSyntax or AttributeListSyntax or EnumDeclarationSyntax || IsAutoProperty(n)) == true;
+        token.Parent?.AncestorsAndSelf().Any(n => n is UsingDirectiveSyntax or AttributeListSyntax or EnumDeclarationSyntax || IsAutoProperty(n) || IsLiteralConstant(n)) == true;
+
+    private static bool IsLiteralConstant(SyntaxNode node) =>
+        node is FieldDeclarationSyntax field
+        && field.Modifiers.Any(SyntaxKind.ConstKeyword)
+        && field.Declaration.Variables.All(v => v.Initializer?.Value is LiteralExpressionSyntax);
 
     private static bool IsAutoProperty(SyntaxNode node) =>
         node is PropertyDeclarationSyntax { ExpressionBody: null, AccessorList: { } accessors } && accessors.Accessors.All(a => a.Body is null && a.ExpressionBody is null);

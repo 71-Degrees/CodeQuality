@@ -147,6 +147,18 @@ public sealed class RuleTests : IDisposable
     }
 
     [Fact]
+    public void TwoTablesOfLiteralConstantsAreNotADuplicate()
+    {
+        static string Table(string name, string word) =>
+            "static class " + name + "\n{\n" + string.Join('\n', Enumerable.Range(0, 20).Select(i => $"    public const string {word}{i} = \"{word} {i}\";")) + "\n}\n";
+
+        Scan("src/Words.cs", Table("Words", "Hello"));
+        var findings = Scan("src/Steps.cs", Table("Steps", "Step"));
+
+        Assert.DoesNotContain(findings, f => f.Rule == "DuplicateCode");
+    }
+
+    [Fact]
     public void RepetitiveCodeInOneStretchIsNotACopyOfItself()
     {
         var lines = string.Join('\n', Enumerable.Range(0, 60).Select(i => $"        list.Add({i});"));
