@@ -95,8 +95,13 @@ public sealed class ToolConfig
     /// <summary>The skipped path fragments, with or without the parked ones.</summary>
     public IEnumerable<string> SkippedPaths(bool includeParked) => includeParked ? SkipFolders : SkipFolders.Concat(Parked);
 
-    /// <summary>The npm scripts to run as the browser-script checks (<c>typecheck</c>, <c>lint</c>). Empty: that check is skipped.</summary>
+    /// <summary>The repo's own npm scripts (<c>typecheck</c>, <c>lint</c>): switched off 2026-11-24 for the machine-wide tools, and run only while those
+    /// are not installed.</summary>
     public string[] ScriptChecks { get; init; } = Array.Empty<string>();
+
+    /// <summary>The page globals this repo's browser scripts share (its own namespace, <c>L</c> for Leaflet, <c>Blazor</c>), each <c>writable</c> or
+    /// <c>readonly</c>: the one thing the shared lint rule set cannot know.</summary>
+    public Dictionary<string, string> ScriptGlobals { get; init; } = new();
 
     public CrawlSettings Crawl { get; init; } = new();
 

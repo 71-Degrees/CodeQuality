@@ -130,7 +130,8 @@ internal static class InstallCommand
     {
         NodePath.Ensure();
         Directory.CreateDirectory(home.Node);
-        foreach (var file in new[] { "package.json", "package-lock.json" })
+        // The packages and the one shared lint rule set (quality scripts runs ESLint with it against every repo).
+        foreach (var file in new[] { "package.json", "package-lock.json", "eslint.config.mjs" })
         {
             File.Copy(Path.Combine(home.Source, "node", file), Path.Combine(home.Node, file), overwrite: true);
         }

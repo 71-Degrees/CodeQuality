@@ -41,7 +41,8 @@ internal static class Crawler
             frontier.Enqueue(url);
         }
 
-        var axePath = Path.Combine(root, "node_modules", "axe-core", "axe.min.js");
+        // The machine-wide copy first (quality install); a repo's own node_modules only while that is not installed.
+        var axePath = ScriptTools.AxePath() is { } shared && File.Exists(shared) ? shared : Path.Combine(root, "node_modules", "axe-core", "axe.min.js");
         var haveAxe = File.Exists(axePath);
         using var playwright = await Playwright.CreateAsync();
         await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions { Headless = true });

@@ -75,14 +75,53 @@ internal static class Analyzers
 /// <summary>Runs the type check and the eslint rules for the browser scripts (the same two the pre-push check runs).</summary>
 internal static class Scripts
 {
+    /// <summary>The browser-script checks with the machine-wide tools (<see cref="ScriptTools"/>) over every script folder the repo has. When the tools
+    /// are not installed yet, a repo that still lists its own npm scripts (<c>scriptChecks</c>) runs those instead, the way every check ran until
+    /// 2026-11-24, so nothing goes unchecked while a machine is being set up.</summary>
     public static async Task<(bool Ok, string Summary)> RunAsync(string root, ToolConfig config)
     {
-        if (config.ScriptChecks.Length == 0)
+        var folders = ScriptTools.FindFolders(root);
+        if (folders.Count == 0)
         {
-            return (true, "not configured (add scriptChecks to quality/quality.json to run the npm type check or lint)");
+            return (true, "no browser scripts (src/<project>/wwwroot/js)");
         }
 
         NodePath.Ensure();
+        if (ScriptTools.Locate() is not { } node)
+        {
+            return config.ScriptChecks.Length > 0
+                ? await RunRepoScriptsAsync(root, config)
+                : (false, "the script tools are not installed: dotnet run --project C:\\71Degrees\\repos\\CodeQuality\\src\\Quality -- install");
+        }
+
+        var results = new List<string>();
+        var ok = true;
+        foreach (var folder in folders)
+        {
+            var name = Path.GetFileName(folder.Project);
+            ok &= await StepAsync(results, $"typecheck {name}", ScriptTools.TscCommand(node, folder), root);
+            ok &= await StepAsync(results, $"lint {name}", ScriptTools.EslintCommand(node, root, folder, config.ScriptGlobals), root);
+        }
+
+        return (ok, string.Join('\n', results));
+    }
+
+    private static async Task<bool> StepAsync(List<string> results, string label, string arguments, string root)
+    {
+        var (code, output) = await Shell.RunAsync("cmd.exe", arguments, root, 300);
+        results.Add($"{label}: {(code == 0 ? "clean" : "FAILED")}");
+        if (code != 0)
+        {
+            results.AddRange(output.Split('\n').Where(l => l.Trim().Length > 0).Take(12).Select(l => "    " + l.TrimEnd()));
+        }
+
+        return code == 0;
+    }
+
+    /// <summary>Switched off (2026-11-24) in favour of the machine-wide tools; kept as the fallback while they are not installed: the repo's own npm
+    /// scripts, installing its node_modules first when they are missing.</summary>
+    private static async Task<(bool Ok, string Summary)> RunRepoScriptsAsync(string root, ToolConfig config)
+    {
         if (!Directory.Exists(Path.Combine(root, "node_modules")))
         {
             var (installCode, installOut) = await Shell.RunAsync("cmd.exe", "/c npm install --no-audit --no-fund", root, 300);
@@ -96,13 +135,7 @@ internal static class Scripts
         var ok = true;
         foreach (var script in config.ScriptChecks)
         {
-            var (code, output) = await Shell.RunAsync("cmd.exe", $"/c npm run {script} --silent", root, 300);
-            results.Add($"{script}: {(code == 0 ? "clean" : "FAILED")}");
-            if (code != 0)
-            {
-                ok = false;
-                results.AddRange(output.Split('\n').Where(l => l.Trim().Length > 0).Take(12).Select(l => "    " + l.TrimEnd()));
-            }
+            ok &= await StepAsync(results, script, $"/c npm run {script} --silent", root);
         }
 
         return (ok, string.Join('\n', results));
