@@ -4,16 +4,19 @@ description: Run, read and act on the 71 Degrees CodeQuality tooling (Roslyn cod
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep
 ---
 
-The tools live in the private repository `71-Degrees/CodeQuality` (local copy `C:\71Degrees\repos\CodeQuality`) and are consumed by each site as the git submodule `tools/CodeQuality`. Its `README.md` is the
-full guide: **read it when setting a site up or when a flag is unfamiliar**. This file is the workflow. Everything runs from the **root of the site repository** (the working directory must be inside that git repo).
+The tools live in the private repository `71-Degrees/CodeQuality` (local copy `C:\71Degrees\repos\CodeQuality`). They run from ONE machine-wide published copy, `C:\71Degrees\published\quality` (built from that repo by `install`), not from a copy inside each site. A site keeps the git submodule `tools/CodeQuality` only for the `Quality.Browser` library its browser tests compile against. Its `README.md` is the
+full guide: **read it when setting a site up or when a flag is unfamiliar**. This file is the workflow. Everything runs from the **root of the site repository** (the working directory must be inside that git repo). In this file `<tool>` means `dotnet C:\71Degrees\published\quality\bin\Quality.dll`, and the Refactor tool is `dotnet C:\71Degrees\published\quality\refactor\Refactor.dll`.
 
 ## 0. Is the site set up?
 
-Check, from the site root: `tools/CodeQuality/src/Quality/Quality.csproj` exists (else `git submodule update --init`, or for a site that has never used it follow README "Using it in a site repository":
-`git submodule add https://github.com/71-Degrees/CodeQuality.git tools/CodeQuality`), and `quality/quality.json` exists (else create it from the README template - ask the user for the site name, solution file, source and
-test folders, npm script checks and the staging URL if unknown; add `/tools/CodeQuality/` to `skipFolders` because the submodule sits under `tools`). First baseline in a new site: run `smells` and `analyzers` with
+Check, from the site root:
+- The published copy is there: `C:\71Degrees\published\quality\bin\Quality.dll` exists. If not, install it once per machine: `dotnet run --project C:\71Degrees\repos\CodeQuality\src\Quality -- install` (`install --check` says whether it is behind GitHub; the `CodeQuality refresh` task runs `install` daily at 01:45). The push check fails with that command when the copy is missing.
+- `tools/CodeQuality/src/Quality.Browser` exists, when the site has browser tests (else `git submodule update --init`, or for a site that has never used it follow README "Using it in a site repository":
+`git submodule add https://github.com/71-Degrees/CodeQuality.git tools/CodeQuality`). A new site adds the submodule for `Quality.Browser`, but runs the tool from the published copy.
+- `quality/quality.json` exists (else create it from the README template - ask the user for the site name, solution file, source and
+test folders, npm script checks and the staging URL if unknown; add `/tools/CodeQuality/` to `skipFolders` because the submodule sits under `tools`). Its `toolCommand` is `dotnet C:\71Degrees\published\quality\bin\Quality.dll`. First baseline in a new site: run `smells` and `analyzers` with
 `--update-baseline`, commit `quality/baseline.json`, `quality/history.json`, `quality/quality.json`, and put `reports/` in `.gitignore`. Use the command prefix from `toolCommand` in `quality/quality.json`
-(normally `dotnet run --project tools/CodeQuality/src/Quality --`).
+(normally `dotnet C:\71Degrees\published\quality\bin\Quality.dll`).
 
 ## First run: a new site, or one that never had a review
 
@@ -48,18 +51,18 @@ also drives the browser tests of just those functions: the site's own browser te
   Commit `quality/baseline.json` and `quality/history.json` with the work that moved them.
 - Fix by extracting, not by raising limits: method 60 lines, 15 decision points, nesting 4 (guard clauses), 7 parameters (group into a record), file 700 lines, Razor `@code` 400 lines. Changing `limits`
   in `quality/quality.json` is an owner decision, not a fix.
-- Mechanical analyzer fixes and empty-catch logging go through the Refactor tool (`dotnet run --project tools/CodeQuality/src/Refactor -- fix-analyzers | extract-block | lambdas-to-methods | log-empty-catches`):
+- Mechanical analyzer fixes and empty-catch logging go through the Refactor tool (`dotnet C:\71Degrees\published\quality\refactor\Refactor.dll fix-analyzers | extract-block | lambdas-to-methods | log-empty-catches`):
   dry run first (it is the default), clean git tree, then `--apply`, build, run the tests, review the diff, commit. One kind of change per commit. Do not write ad-hoc scripts (Python or otherwise) for edits the tool covers.
 - A refactor is behaviour-preserving: tests before and after. A smell is a lead for a person, not a verdict - when a finding is a deliberate switch table or similar, say so rather than contorting the code.
 
 ## 3. Changing the tools themselves
 
-The tools are site-agnostic: anything specific to one website goes in that site's `quality/quality.json`, never in the tool code. Work in `C:\71Degrees\repos\CodeQuality` (or inside the submodule), keep its own
-checks at zero (`dotnet build CodeQuality.slnx`, `dotnet test CodeQuality.slnx`, `dotnet run --project src/Quality`), push (HTTPS remote; SSH push does not work from here), then in the site `git add tools/CodeQuality`
-to move the pointer and commit. Pushing the tools repo is an ordinary green-build push; moving a site's pointer follows that site's own push rules.
+The tools are site-agnostic: anything specific to one website goes in that site's `quality/quality.json`, never in the tool code. Work in `C:\71Degrees\repos\CodeQuality`, keep its own
+checks at zero (`dotnet build C:\71Degrees\repos\CodeQuality\CodeQuality.slnx`, `dotnet test C:\71Degrees\repos\CodeQuality\CodeQuality.slnx`, `dotnet run --project C:\71Degrees\repos\CodeQuality\src\Quality`), push (HTTPS remote; SSH push does not work from here), then run `dotnet run --project C:\71Degrees\repos\CodeQuality\src\Quality -- install` so the published copy every site runs is refreshed. A site moves its `tools/CodeQuality` pointer (`git add tools/CodeQuality` and commit) only when the change touches `Quality.Browser`; that follows the site's own push rules.
 
 ## Gotchas
 
+- A missing published copy fails the push check, with the install command; it never passes silently.
 - Run from the site root; the tools find the repo by the nearest `.git`. The analyzer step builds the whole solution into a temp folder, so it works while the tool itself is running and while a dev server is up.
 - Bash heredocs with apostrophes break; use the Write tool for files. Quote or avoid backslashes in `sed`; prefer the Edit tool for paths with `\`.
 - The report is built by a Quality run; a run of one check keeps the other checks' last results (stamped with when they ran), so a quick `smells` does not erase the analyzer or crawl sections.

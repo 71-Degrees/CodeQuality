@@ -9,9 +9,24 @@ Blazor, a front end that is Node-free or lightly scripted). Everything is read-o
 | **Refactor** | `src/Refactor` | Roslyn-driven mechanical fixes: `fix-analyzers`, `extract-block`, `lambdas-to-methods`, `log-empty-catches` (dry run unless `--apply`; needs a clean git tree) |
 | **Common** | `src/Common` | Shared helpers: finding the repository, running a process, reading `quality/quality.json` |
 
+## Install (one copy per machine)
+
+The tools run from one published copy per machine, `C:\71Degrees\published\quality`: `bin\` holds Quality, `refactor\` holds the Refactor tool, `node\` holds the script tools and their settings, and the crawler's Playwright browser lives there too. Sites do not keep their own copies.
+
+```
+dotnet run --project C:\71Degrees\repos\CodeQuality\src\Quality -- install
+dotnet run --project C:\71Degrees\repos\CodeQuality\src\Quality -- install --check
+```
+
+`install` pulls this repository, publishes both tools (Release) into a fresh folder and swaps it in (a running copy is never overwritten, and it refuses while a quality run is in progress), then installs the script packages in `node\`, taking minor and patch releases within each major. A new major waits for the owner's word. `install --check` says whether the copy is behind GitHub, without changing anything. A Windows task, `CodeQuality refresh`, runs `install` daily at 01:45, before the nightly jobs.
+
+The crawler's browser is installed once: `pwsh C:\71Degrees\published\quality\bin\playwright.ps1 install chromium`.
+
+Every command below runs as `dotnet C:\71Degrees\published\quality\bin\Quality.dll <command>` (the Refactor tool as `dotnet C:\71Degrees\published\quality\refactor\Refactor.dll <command>`), from the root of the site.
+
 ## Using it in a site repository
 
-Add this repository as a submodule so each site pins the version it was checked with:
+A site adds this repository as a submodule (a new site does so at setup, since its browser-test project compiles against the library), so the site pins the version it was checked with. The tool itself runs from the published copy above:
 
 ```
 git submodule add https://github.com/71-Degrees/CodeQuality.git tools/CodeQuality
@@ -21,16 +36,16 @@ git submodule update --init
 Run from the **root of the site repository** (the tools find it by the nearest `.git` above the working directory):
 
 ```
-dotnet run --project tools/CodeQuality/src/Quality                     # smells + analyzers + script checks (about a minute)
-dotnet run --project tools/CodeQuality/src/Quality -- smells           # seconds, no build
-dotnet run --project tools/CodeQuality/src/Quality -- analyzers        # a full build with the CA*/IDE* analyzers
-dotnet run --project tools/CodeQuality/src/Quality -- scripts          # the npm checks named in scriptChecks
-dotnet run --project tools/CodeQuality/src/Quality -- crawl            # headless Chromium walk of crawl.defaultUrl (or --url)
-dotnet run --project tools/CodeQuality/src/Quality -- tests            # every test project with coverage (--include-browser adds the browser tests)
-dotnet run --project tools/CodeQuality/src/Quality -- quick            # small iterations: smells of just the changed files + just the tests that mention them (--since origin/master, --no-tests, --no-build, --browser)
-dotnet run --project tools/CodeQuality/src/Quality -- history          # the timeline summary (--backfill rebuilds it from git)
-dotnet run --project tools/CodeQuality/src/Quality -- smells --update-baseline   # accept today's state (after fixing things, or on purpose)
-dotnet run --project tools/CodeQuality/src/Refactor -- fix-analyzers   # dry run of the mechanical analyzer fixes
+dotnet C:\71Degrees\published\quality\bin\Quality.dll                     # smells + analyzers + script checks (about a minute)
+dotnet C:\71Degrees\published\quality\bin\Quality.dll smells              # seconds, no build
+dotnet C:\71Degrees\published\quality\bin\Quality.dll analyzers           # a full build with the CA*/IDE* analyzers
+dotnet C:\71Degrees\published\quality\bin\Quality.dll scripts             # the browser-script checks (tsc and ESLint), plus any npm checks named in scriptChecks
+dotnet C:\71Degrees\published\quality\bin\Quality.dll crawl               # headless Chromium walk of crawl.defaultUrl (or --url)
+dotnet C:\71Degrees\published\quality\bin\Quality.dll tests               # every test project with coverage (--include-browser adds the browser tests)
+dotnet C:\71Degrees\published\quality\bin\Quality.dll quick               # small iterations: smells of just the changed files + just the tests that mention them (--since origin/master, --no-tests, --no-build, --browser)
+dotnet C:\71Degrees\published\quality\bin\Quality.dll history             # the timeline summary (--backfill rebuilds it from git)
+dotnet C:\71Degrees\published\quality\bin\Quality.dll smells --update-baseline   # accept today's state (after fixing things, or on purpose)
+dotnet C:\71Degrees\published\quality\refactor\Refactor.dll fix-analyzers   # dry run of the mechanical analyzer fixes
 ```
 
 **`quick` - the fast check between edits.** It looks only at what git says changed (staged, unstaged and new files against HEAD, or `--since <ref>` such as `origin/master` for everything since the last push), runs the smell scan and keeps just those files' findings against the baseline (new / worse / fixed), then runs only the tests that are likely to touch the change: the type names a changed file declares are looked up in the test projects' source and every test class in a file that mentions one is run (`dotnet test --filter`); a changed Razor component is followed up to the pages that show it and the tests that request those pages' routes are added (the usual shape of tests that host the real app); a changed test file runs its own classes. Changed files no test mentions are named, so a gap shows. It writes nothing - no report, no timeline entry, no baseline change - so a partial look never stands in for a full one. It is a shortcut by name, not a proof (a test reaching the code only through the running app can be missed, and a widely shared component selects widely), so the full `quality` run and the whole test suite stay the gate before a push. Exit 0 clean, 1 something new/worse/failing, 2 a check could not run.
@@ -48,7 +63,7 @@ Every run also rewrites `reports/quality-dashboard.html`, a fixed-name page that
 First time in a site: run `smells` and `analyzers` with `--update-baseline`, then commit `quality/baseline.json`, `quality/history.json` and `quality/quality.json`. Add `reports/` to the site's `.gitignore`.
 If the site already has a `quality/baseline.json` history in git, `history --backfill` rebuilds the timeline from it.
 
-Upgrading a site: `git submodule update --remote tools/CodeQuality`, build, run the checks, commit the new submodule pointer.
+Upgrading the tools: `dotnet run --project C:\71Degrees\repos\CodeQuality\src\Quality -- install` (or wait for the 01:45 task) refreshes the published copy that every site runs. A site moves its submodule pointer only when `Quality.Browser` changed: `git submodule update --remote tools/CodeQuality`, build, run the checks, commit the new pointer.
 
 ## Per-site settings: `quality/quality.json`
 
@@ -68,12 +83,12 @@ Every setting is optional. With no file the tools check `src` and `tools` of the
   "ruleExemptions": { "DirectClock": [ "/Startup/" ] },
   "hotspotDays": 90,
   "limits": { "methodLines": 60, "complexity": 15, "nesting": 4, "parameters": 7, "fileLines": 700, "razorCodeLines": 400, "duplicateTokens": 70, "duplicateLines": 8 },
-  "toolCommand": "dotnet run --project tools/CodeQuality/src/Quality --",
+  "toolCommand": "dotnet C:\\71Degrees\\published\\quality\\bin\\Quality.dll",
   "extraCommands": [ "dotnet run --project tools/Deploy -- check     the full pre-push check" ]
 }
 ```
 
-`scriptChecks` are npm script names (`npm run <name>`); the crawler uses axe-core from `node_modules` when it is there. The analyzer rules should also be switched on in the site's own
+The browser-script checks are CodeQuality's own: `scripts` runs `tsc` and ESLint from the published copy's `node` folder over each site's `src/*/wwwroot/js` folder (the tsconfig beside it is found automatically; `lib` is skipped), with one shared rule set (`node/eslint.config.mjs` in this repository). A site needs no `package.json`, `node_modules` or ESLint config of its own; its page globals go in `quality.json` as `"scripts": { "globals": { ... } }`. `scriptChecks` can still name extra npm scripts (`npm run <name>`). The crawler reads axe-core from the published copy's `node` folder. The analyzer rules should also be switched on in the site's own
 `Directory.Build.props` (`AnalysisMode=Recommended`, `CodeAnalysisTreatWarningsAsErrors`); copy this repository's `Directory.Build.props` and `.editorconfig` as a starting point.
 
 ## What the checks do
@@ -95,7 +110,7 @@ Every setting is optional. With no file the tools check `src` and `tools` of the
   they get their own row.
 - **Crawl:** Playwright, phone-sized by default, read-only; broken links, console and network errors, SEO basics, sideways scrolling, images with no alt, axe-core accessibility.
 - **Tests and coverage:** `quality tests` runs each test project (`testProjects` in quality.json, else every project one folder down under the test folders, browser tests only with `--include-browser`) with the coverage collector; the report also reads whatever the test projects last wrote to `reports/test-results/<project>` (a TRX and a Cobertura file each) on every run, so a site whose pre-push check runs its tests with the same arguments never has a report more than a push old. It shows the number of tests, failures, and line coverage per project folder (our own C# source only: Razor components are compiled into generated code the coverage cannot map back), and the timeline records them. Test projects need the `coverlet.collector` package.
-  One-time: `pwsh src/Quality/bin/Debug/net10.0/playwright.ps1 install chromium`.
+  One-time: `pwsh C:\71Degrees\published\quality\bin\playwright.ps1 install chromium`.
 
 ## Browser tests (`src/Quality.Browser`)
 
