@@ -82,9 +82,7 @@ internal static class Scripts
             return (true, "not configured (add scriptChecks to quality/quality.json to run the npm type check or lint)");
         }
 
-        var nodeDir = new[] { Environment.GetEnvironmentVariable("ProgramFiles") + @"\nodejs" }.FirstOrDefault(Directory.Exists);
-        var path = nodeDir is null ? Environment.GetEnvironmentVariable("PATH") : nodeDir + ";" + Environment.GetEnvironmentVariable("PATH");
-        Environment.SetEnvironmentVariable("PATH", path);
+        NodePath.Ensure();
         if (!Directory.Exists(Path.Combine(root, "node_modules")))
         {
             var (installCode, installOut) = await Shell.RunAsync("cmd.exe", "/c npm install --no-audit --no-fund", root, 300);

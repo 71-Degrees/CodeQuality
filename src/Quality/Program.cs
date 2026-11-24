@@ -26,6 +26,7 @@
 //   quality crawl [--url https://staging.example.com] [--max-pages 120] [--desktop] [--delay 150]
 //   quality setup [--skip <id> --reason "..."] [--acknowledge]          # the first-run checklist: what this site has not done yet, ranked by value for the time
 //   quality quick [--since origin/master] [--no-tests] [--no-build]   # small iterations: smells of just the changed files + just the tests that mention them; writes nothing
+//   quality install [--check] [--no-pull]       # publishes CodeQuality once to C:\71Degrees\published\quality for every repo; --check says whether that copy is behind origin (no repo needed)
 //   quality all --url http://localhost:5199     # everything, including a crawl of a local site
 //   add --open to any run to open the HTML report (reports/quality-latest.html) in Chrome; quality.json's "openReport" ("always" / "onFindings") does it without the flag, --no-open overrides it
 // Exit code: 0 clean, 1 something new/worse or a crawl error, 2 a check could not run. A report is written to reports/quality-<date>_<time>.txt (a dated copy per run, so several runs a day all survive).
@@ -39,7 +40,7 @@ using CodeQuality.Quality;
 
 internal static class Program
 {
-    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick", "setup", "init", "browser" };
+    private static readonly string[] Commands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "history", "features", "quick", "setup", "init", "browser", "install" };
     private static readonly string[] LiveCommands = { "default", "all", "smells", "analyzers", "scripts", "crawl", "tests", "quick" };
 
     private static async Task<int> Main(string[] args)
@@ -51,6 +52,12 @@ internal static class Program
         {
             Console.Error.WriteLine($"Unknown command '{command}'. Use smells, analyzers, scripts, crawl, history or all.");
             return 2;
+        }
+
+        // install needs no repository: it works on the machine-wide copy, so it runs before Repo.FindRoot.
+        if (command == "install")
+        {
+            return await InstallCommand.RunAsync(new Options(args));
         }
 
         var options = new Options(args);
