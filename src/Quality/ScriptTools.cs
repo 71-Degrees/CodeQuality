@@ -17,8 +17,9 @@ internal sealed record ScriptFolder(string Project, string Scripts, string? TsCo
 /// </summary>
 internal static class ScriptTools
 {
-    /// <summary>The compiler settings a project without its own tsconfig.json is checked with: the ones CrateDigger's tsconfig set.</summary>
-    internal const string DefaultTscOptions = "--allowJs --checkJs --noEmit --target ES2022 --lib ES2022,DOM,DOM.Iterable --skipLibCheck";
+    /// <summary>The compiler settings a project without its own tsconfig.json is checked with: the ones CrateDigger's tsconfig set. <c>--strict false</c>
+    /// is spelled out because TypeScript 7 turns strict on by default, and plain browser scripts carry no type annotations to satisfy it.</summary>
+    internal const string DefaultTscOptions = "--allowJs --checkJs --noEmit --strict false --target ES2022 --lib ES2022,DOM,DOM.Iterable --skipLibCheck";
 
     /// <summary>The installed node folder: beside the running copy (published), else the default published home (a run from source). Null
     /// when neither has TypeScript and ESLint installed.</summary>
